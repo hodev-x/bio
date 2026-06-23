@@ -2,6 +2,7 @@ import * as path from "node:path";
 import { Stack, StackProps } from "aws-cdk-lib";
 import { Construct } from "constructs";
 import { StaticSite } from "./constructs/static-site.js";
+import { DeployPipeline } from "./constructs/pipeline.js";
 
 export interface BioStackProps extends StackProps {
   domainName: string;
@@ -20,5 +21,7 @@ export class BioStack extends Stack {
       webDistPath: WEB_DIST_PATH,
     });
     void site;
+
+    new DeployPipeline(this, "Pipeline", { githubOwner: "hodev-x", githubRepo: "bio" });
   }
 }
