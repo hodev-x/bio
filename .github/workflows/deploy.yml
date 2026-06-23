@@ -24,6 +24,8 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
+      - run: pnpm --filter @bio/web typecheck
+
       - run: pnpm --filter @bio/web build
 
       - run: pnpm --filter @bio/infra test
