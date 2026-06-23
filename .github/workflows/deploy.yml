@@ -28,6 +28,12 @@ jobs:
 
       - run: pnpm --filter @bio/web build
 
+      - run: pnpm --filter @bio/api typecheck
+
+      - run: pnpm --filter @bio/api test
+
+      - run: pnpm --filter @bio/api build
+
       - run: pnpm --filter @bio/infra test
 
       - name: Configure AWS credentials (OIDC)
