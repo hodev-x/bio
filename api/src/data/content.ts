@@ -19,8 +19,14 @@ const visibleOnly = (items: Item[], includeHidden: boolean) =>
   includeHidden ? items : items.filter((i) => i.visible !== false);
 
 async function scanAll(ddb: DynamoDBDocumentClient, table: string): Promise<Item[]> {
-  const out = await ddb.send(new ScanCommand({ TableName: table }));
-  return (out.Items ?? []) as Item[];
+  const items: Item[] = [];
+  let ExclusiveStartKey: Record<string, unknown> | undefined;
+  do {
+    const out = await ddb.send(new ScanCommand({ TableName: table, ExclusiveStartKey }));
+    items.push(...((out.Items ?? []) as Item[]));
+    ExclusiveStartKey = out.LastEvaluatedKey as Record<string, unknown> | undefined;
+  } while (ExclusiveStartKey);
+  return items;
 }
 
 // Sort by a date-ish string field descending (newest first). Missing => oldest.
@@ -54,21 +60,31 @@ export async function listPosts(
   ddb: DynamoDBDocumentClient,
   opts: { limit?: number; includeHidden?: boolean } = {},
 ): Promise<PostPage> {
-  const out = await ddb.send(
-    new QueryCommand({
-      TableName: TABLES.posts,
-      IndexName: "gsi-by-date",
-      KeyConditionExpression: "#t = :post",
-      ExpressionAttributeNames: { "#t": "type" },
-      ExpressionAttributeValues: { ":post": "post" },
-      ScanIndexForward: false, // newest first
-      Limit: opts.limit ?? 10,
-    }),
-  );
-  const items = visibleOnly((out.Items ?? []) as Item[], opts.includeHidden ?? false);
-  return { items, cursor: null };
+  const limit = opts.limit ?? 10;
+  const collected: Item[] = [];
+  let ExclusiveStartKey: Record<string, unknown> | undefined;
+  // Fetch newest-first and filter visibility in-code, so the public page
+  // does not under-fill when hidden posts fall within a DynamoDB Limit window.
+  // NOTE: real cursor pagination is deferred to a later plan (cursor stays null).
+  do {
+    const out = await ddb.send(
+      new QueryCommand({
+        TableName: TABLES.posts,
+        IndexName: "gsi-by-date",
+        KeyConditionExpression: "#t = :post",
+        ExpressionAttributeNames: { "#t": "type" },
+        ExpressionAttributeValues: { ":post": "post" },
+        ScanIndexForward: false,
+        ExclusiveStartKey,
+      }),
+    );
+    collected.push(...visibleOnly((out.Items ?? []) as Item[], opts.includeHidden ?? false));
+    ExclusiveStartKey = out.LastEvaluatedKey as Record<string, unknown> | undefined;
+  } while (ExclusiveStartKey && collected.length < limit);
+  return { items: collected.slice(0, limit), cursor: null };
 }
 
+// Returns the raw item (may be visible:false); public callers MUST enforce visibility.
 export async function getPost(
   ddb: DynamoDBDocumentClient,
   slug: string,

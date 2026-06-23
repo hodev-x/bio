@@ -39,11 +39,14 @@ describe("posts", () => {
     ddb.on(QueryCommand).resolves({
       Items: [
         { slug: "second", publishedAt: "2026-02-01", visible: true },
+        { slug: "hidden", publishedAt: "2026-01-15", visible: false },
         { slug: "first", publishedAt: "2026-01-01", visible: true },
       ],
     });
     const posts = await listPosts(ddb as unknown as DynamoDBDocumentClient, { limit: 10 });
+    // Newest-first order is preserved; hidden post is excluded
     expect(posts.items.map((p) => p.slug)).toEqual(["second", "first"]);
+    expect(posts.items.some((p) => p.slug === "hidden")).toBe(false);
   });
 
   it("getPost returns a single post or null", async () => {

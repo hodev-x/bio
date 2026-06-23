@@ -31,6 +31,15 @@ describe("read routes", () => {
     expect(res.statusCode).toBe(404);
   });
 
+  it("GET /api/posts/:slug returns 404 for a hidden post", async () => {
+    const hiddenDeps = {
+      ...deps,
+      getPost: async (_slug: string) => ({ slug: "hidden", title: "H", visible: false }),
+    };
+    const res = await buildApp(hiddenDeps).inject({ method: "GET", url: "/api/posts/hidden" });
+    expect(res.statusCode).toBe(404);
+  });
+
   it("public GET /api/content does NOT include hidden items (no includeHidden)", async () => {
     let calledWith: unknown;
     const res = await buildApp({

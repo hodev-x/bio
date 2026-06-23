@@ -29,7 +29,9 @@ export function buildApp(deps: AppDeps = {}): FastifyInstance {
   });
 
   app.get("/api/posts", async (req) => {
-    const limit = Number((req.query as { limit?: string }).limit ?? 10);
+    const raw = (req.query as { limit?: string }).limit;
+    const parsed = Number.parseInt(raw ?? "", 10);
+    const limit = Number.isFinite(parsed) ? Math.min(100, Math.max(1, parsed)) : 10;
     return listPosts({ limit });
   });
 
