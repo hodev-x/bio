@@ -1,0 +1,7 @@
+{
+  "app": "ts-node --prefer-ts-exts bin/app.ts",
+  "context": {
+    "domainName": "danielhodeta.com",
+    "@aws-cdk/core:newStyleStackSynthesis": true
+  }
+}
