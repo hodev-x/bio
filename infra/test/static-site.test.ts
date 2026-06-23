@@ -9,6 +9,7 @@ function synth() {
   new StaticSite(stack, "Site", {
     domainName: "danielhodeta.com",
     webDistPath: "../web/dist",
+    apiOrigin: "abc123.execute-api.us-east-1.amazonaws.com",
   });
   return Template.fromStack(stack);
 }
@@ -56,5 +57,16 @@ describe("StaticSite", () => {
     const t = synth();
     // BucketDeployment provisions a custom resource backed by a Lambda.
     t.resourceCountIs("Custom::CDKBucketDeployment", 1);
+  });
+
+  it("adds an /api/* behavior with caching disabled", () => {
+    const t = synth();
+    t.hasResourceProperties("AWS::CloudFront::Distribution", {
+      DistributionConfig: Match.objectLike({
+        CacheBehaviors: Match.arrayWith([
+          Match.objectLike({ PathPattern: "/api/*" }),
+        ]),
+      }),
+    });
   });
 });

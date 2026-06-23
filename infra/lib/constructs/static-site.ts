@@ -13,6 +13,8 @@ export interface StaticSiteProps {
   domainName: string;
   /** Path to the built web assets (e.g. ../web/dist). */
   webDistPath: string;
+  /** Domain of the HTTP API origin (e.g. xxxx.execute-api.us-east-1.amazonaws.com). */
+  apiOrigin?: string;
 }
 
 export class StaticSite extends Construct {
@@ -40,6 +42,17 @@ export class StaticSite extends Construct {
       validation: acm.CertificateValidation.fromDns(zone),
     });
 
+    const additionalBehaviors: Record<string, cloudfront.BehaviorOptions> = {};
+    if (props.apiOrigin) {
+      additionalBehaviors["/api/*"] = {
+        origin: new origins.HttpOrigin(props.apiOrigin),
+        viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
+        allowedMethods: cloudfront.AllowedMethods.ALLOW_ALL,
+        cachePolicy: cloudfront.CachePolicy.CACHING_DISABLED,
+        originRequestPolicy: cloudfront.OriginRequestPolicy.ALL_VIEWER_EXCEPT_HOST_HEADER,
+      };
+    }
+
     this.distribution = new cloudfront.Distribution(this, "Distribution", {
       defaultRootObject: "index.html",
       domainNames: [domainName, wwwName],
@@ -49,6 +62,7 @@ export class StaticSite extends Construct {
         viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
         cachePolicy: cloudfront.CachePolicy.CACHING_OPTIMIZED,
       },
+      additionalBehaviors,
       errorResponses: [
         {
           httpStatus: 403,

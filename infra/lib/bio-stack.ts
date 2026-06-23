@@ -1,5 +1,5 @@
 import * as path from "node:path";
-import { Stack, StackProps } from "aws-cdk-lib";
+import { Fn, Stack, StackProps } from "aws-cdk-lib";
 import { Construct } from "constructs";
 import { StaticSite } from "./constructs/static-site.js";
 import { DeployPipeline } from "./constructs/pipeline.js";
@@ -20,11 +20,12 @@ export class BioStack extends Stack {
     super(scope, id, props);
     const tables = new ContentTables(this, "Tables");
     const api = new ApiLambda(this, "Api", { tables });
-    void api; // consumed by the CloudFront /api/* behavior in Task 7
+    const apiOrigin = Fn.select(2, Fn.split("/", api.httpApi.apiEndpoint));
 
     const site = new StaticSite(this, "Site", {
       domainName: props.domainName,
       webDistPath: WEB_DIST_PATH,
+      apiOrigin,
     });
     void site;
 
