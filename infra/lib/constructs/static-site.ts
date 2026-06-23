@@ -6,9 +6,13 @@ import * as origins from "aws-cdk-lib/aws-cloudfront-origins";
 import * as acm from "aws-cdk-lib/aws-certificatemanager";
 import * as route53 from "aws-cdk-lib/aws-route53";
 import * as targets from "aws-cdk-lib/aws-route53-targets";
+import * as s3deploy from "aws-cdk-lib/aws-s3-deployment";
+import * as path from "node:path";
 
 export interface StaticSiteProps {
   domainName: string;
+  /** Path to the built web assets (e.g. ../web/dist). */
+  webDistPath: string;
 }
 
 export class StaticSite extends Construct {
@@ -66,5 +70,12 @@ export class StaticSite extends Construct {
     );
     new route53.ARecord(this, "ApexA", { zone, target, recordName: domainName });
     new route53.ARecord(this, "WwwA", { zone, target, recordName: wwwName });
+
+    new s3deploy.BucketDeployment(this, "DeployWeb", {
+      sources: [s3deploy.Source.asset(path.resolve(props.webDistPath))],
+      destinationBucket: this.bucket,
+      distribution: this.distribution,
+      distributionPaths: ["/*"],
+    });
   }
 }

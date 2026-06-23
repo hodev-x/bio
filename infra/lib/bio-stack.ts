@@ -9,7 +9,10 @@ export interface BioStackProps extends StackProps {
 export class BioStack extends Stack {
   constructor(scope: Construct, id: string, props: BioStackProps) {
     super(scope, id, props);
-    const site = new StaticSite(this, "Site", { domainName: props.domainName });
+    const site = new StaticSite(this, "Site", {
+      domainName: props.domainName,
+      webDistPath: "../web/dist",
+    });
     void site;
   }
 }

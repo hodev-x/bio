@@ -6,7 +6,10 @@ import { StaticSite } from "../lib/constructs/static-site.js";
 function synth() {
   const app = new App();
   const stack = new Stack(app, "S", { env: { account: "123456789012", region: "us-east-1" } });
-  new StaticSite(stack, "Site", { domainName: "danielhodeta.com" });
+  new StaticSite(stack, "Site", {
+    domainName: "danielhodeta.com",
+    webDistPath: "../web/dist",
+  });
   return Template.fromStack(stack);
 }
 
@@ -47,5 +50,11 @@ describe("StaticSite", () => {
   it("creates Route53 A records for apex and www", () => {
     const t = synth();
     t.resourceCountIs("AWS::Route53::RecordSet", 2);
+  });
+
+  it("deploys the web build into the bucket via a BucketDeployment", () => {
+    const t = synth();
+    // BucketDeployment provisions a custom resource backed by a Lambda.
+    t.resourceCountIs("Custom::CDKBucketDeployment", 1);
   });
 });
