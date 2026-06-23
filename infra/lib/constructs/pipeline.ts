@@ -4,6 +4,8 @@ import * as iam from "aws-cdk-lib/aws-iam";
 export interface DeployPipelineProps {
   githubOwner: string;
   githubRepo: string;
+  /** Git branch allowed to assume the deploy role. Defaults to "main". */
+  branch?: string;
 }
 
 export class DeployPipeline extends Construct {
@@ -17,15 +19,19 @@ export class DeployPipeline extends Construct {
       clientIds: ["sts.amazonaws.com"],
     });
 
+    const branch = props.branch ?? "main";
+
+    // Exact-match both conditions: the token must be issued for AWS STS (aud) AND
+    // originate from a push to the allowed branch of this exact repo (sub). Using
+    // StringEquals on the branch ref (not a "repo:owner/name:*" wildcard) keeps PRs
+    // from forks and other branches from assuming the production deploy role.
     this.deployRole = new iam.Role(this, "DeployRole", {
       roleName: "bio-github-deploy",
       assumedBy: new iam.WebIdentityPrincipal(provider.openIdConnectProviderArn, {
         StringEquals: {
           "token.actions.githubusercontent.com:aud": "sts.amazonaws.com",
-        },
-        StringLike: {
           "token.actions.githubusercontent.com:sub":
-            `repo:${props.githubOwner}/${props.githubRepo}:*`,
+            `repo:${props.githubOwner}/${props.githubRepo}:ref:refs/heads/${branch}`,
         },
       }),
       description: "Role assumed by GitHub Actions to deploy the bio stack",

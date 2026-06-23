@@ -21,21 +21,29 @@ describe("DeployPipeline", () => {
     });
   });
 
-  it("creates a role trusting only the hodev-x/bio repo", () => {
+  it("trusts only pushes to main of the hodev-x/bio repo (exact aud + sub)", () => {
     const t = synth();
     t.hasResourceProperties("AWS::IAM::Role", {
       AssumeRolePolicyDocument: Match.objectLike({
         Statement: Match.arrayWith([
           Match.objectLike({
             Condition: Match.objectLike({
-              StringLike: Match.objectLike({
+              StringEquals: Match.objectLike({
+                "token.actions.githubusercontent.com:aud": "sts.amazonaws.com",
                 "token.actions.githubusercontent.com:sub":
-                  "repo:hodev-x/bio:*",
+                  "repo:hodev-x/bio:ref:refs/heads/main",
               }),
             }),
           }),
         ]),
       }),
     });
+  });
+
+  it("does NOT use a wildcard sub that would allow any branch/PR", () => {
+    const t = synth();
+    const roles = t.findResources("AWS::IAM::Role");
+    const json = JSON.stringify(roles);
+    expect(json).not.toContain("repo:hodev-x/bio:*");
   });
 });
