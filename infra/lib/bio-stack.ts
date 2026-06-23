@@ -4,6 +4,7 @@ import { Construct } from "constructs";
 import { StaticSite } from "./constructs/static-site.js";
 import { DeployPipeline } from "./constructs/pipeline.js";
 import { ContentTables } from "./constructs/content-tables.js";
+import { ApiLambda } from "./constructs/api-lambda.js";
 
 export interface BioStackProps extends StackProps {
   domainName: string;
@@ -18,7 +19,8 @@ export class BioStack extends Stack {
   constructor(scope: Construct, id: string, props: BioStackProps) {
     super(scope, id, props);
     const tables = new ContentTables(this, "Tables");
-    void tables; // consumed by the API construct in Task 6
+    const api = new ApiLambda(this, "Api", { tables });
+    void api; // consumed by the CloudFront /api/* behavior in Task 7
 
     const site = new StaticSite(this, "Site", {
       domainName: props.domainName,
