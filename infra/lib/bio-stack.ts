@@ -3,6 +3,7 @@ import { Stack, StackProps } from "aws-cdk-lib";
 import { Construct } from "constructs";
 import { StaticSite } from "./constructs/static-site.js";
 import { DeployPipeline } from "./constructs/pipeline.js";
+import { ContentTables } from "./constructs/content-tables.js";
 
 export interface BioStackProps extends StackProps {
   domainName: string;
@@ -16,6 +17,9 @@ const WEB_DIST_PATH = path.resolve(import.meta.dirname, "../../web/dist");
 export class BioStack extends Stack {
   constructor(scope: Construct, id: string, props: BioStackProps) {
     super(scope, id, props);
+    const tables = new ContentTables(this, "Tables");
+    void tables; // consumed by the API construct in Task 6
+
     const site = new StaticSite(this, "Site", {
       domainName: props.domainName,
       webDistPath: WEB_DIST_PATH,
