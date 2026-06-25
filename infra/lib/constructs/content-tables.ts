@@ -2,6 +2,13 @@ import { RemovalPolicy } from "aws-cdk-lib";
 import { Construct } from "constructs";
 import * as dynamodb from "aws-cdk-lib/aws-dynamodb";
 
+export interface ContentTablesProps {
+  /** Prefix for all table names, e.g. "bio-staging". */
+  tableNamePrefix: string;
+  /** Removal policy for all tables; defaults to RemovalPolicy.RETAIN. */
+  removalPolicy?: RemovalPolicy;
+}
+
 /** One on-demand DynamoDB table per content type. */
 export class ContentTables extends Construct {
   readonly profile: dynamodb.Table;
@@ -11,15 +18,18 @@ export class ContentTables extends Construct {
   readonly projects: dynamodb.Table;
   readonly posts: dynamodb.Table;
 
-  constructor(scope: Construct, id: string) {
+  constructor(scope: Construct, id: string, props: ContentTablesProps) {
     super(scope, id);
+
+    const removal = props.removalPolicy ?? RemovalPolicy.RETAIN;
+    const prefix = props.tableNamePrefix;
 
     const base = (name: string, partitionKey: string) =>
       new dynamodb.Table(this, name, {
-        tableName: `bio-${name.toLowerCase()}`,
+        tableName: `${prefix}-${name.toLowerCase()}`,
         partitionKey: { name: partitionKey, type: dynamodb.AttributeType.STRING },
         billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
-        removalPolicy: RemovalPolicy.RETAIN,
+        removalPolicy: removal,
         pointInTimeRecoverySpecification: { pointInTimeRecoveryEnabled: true },
       });
 
@@ -30,10 +40,10 @@ export class ContentTables extends Construct {
     this.projects = base("Projects", "id");
 
     this.posts = new dynamodb.Table(this, "Posts", {
-      tableName: "bio-posts",
+      tableName: `${prefix}-posts`,
       partitionKey: { name: "slug", type: dynamodb.AttributeType.STRING },
       billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
-      removalPolicy: RemovalPolicy.RETAIN,
+      removalPolicy: removal,
       pointInTimeRecoverySpecification: { pointInTimeRecoveryEnabled: true },
     });
     this.posts.addGlobalSecondaryIndex({

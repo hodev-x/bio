@@ -1,13 +1,13 @@
 import * as path from "node:path";
-import { Fn, Stack, StackProps } from "aws-cdk-lib";
+import { Stack, StackProps, Fn, RemovalPolicy } from "aws-cdk-lib";
 import { Construct } from "constructs";
 import { StaticSite } from "./constructs/static-site.js";
-import { DeployPipeline } from "./constructs/pipeline.js";
 import { ContentTables } from "./constructs/content-tables.js";
 import { ApiLambda } from "./constructs/api-lambda.js";
 
 export interface BioStackProps extends StackProps {
-  domainName: string;
+  envName: string;     // "staging" | "prod"
+  zoneDomain: string;  // "danielhodeta.com"
 }
 
 // Anchor the web build path to this file's location so it resolves the same
@@ -18,17 +18,23 @@ const WEB_DIST_PATH = path.resolve(import.meta.dirname, "../../web/dist");
 export class BioStack extends Stack {
   constructor(scope: Construct, id: string, props: BioStackProps) {
     super(scope, id, props);
-    const tables = new ContentTables(this, "Tables");
+    const isProd = props.envName === "prod";
+    const siteDomain = isProd ? props.zoneDomain : `${props.envName}.${props.zoneDomain}`;
+
+    const tables = new ContentTables(this, "Tables", {
+      tableNamePrefix: `bio-${props.envName}`,
+      removalPolicy: isProd ? RemovalPolicy.RETAIN : RemovalPolicy.DESTROY,
+    });
     const api = new ApiLambda(this, "Api", { tables });
     const apiOrigin = Fn.select(2, Fn.split("/", api.httpApi.apiEndpoint));
 
     const site = new StaticSite(this, "Site", {
-      domainName: props.domainName,
+      domainName: siteDomain,
+      zoneName: props.zoneDomain,
+      includeWww: isProd,
       webDistPath: WEB_DIST_PATH,
       apiOrigin,
     });
     void site;
-
-    new DeployPipeline(this, "Pipeline", { githubOwner: "hodev-x", githubRepo: "bio" });
   }
 }

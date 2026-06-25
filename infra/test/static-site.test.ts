@@ -3,20 +3,34 @@ import { App, Stack } from "aws-cdk-lib";
 import { Template, Match } from "aws-cdk-lib/assertions";
 import { StaticSite } from "../lib/constructs/static-site.js";
 
-function synth() {
+function synthApex() {
   const app = new App();
   const stack = new Stack(app, "S", { env: { account: "123456789012", region: "us-east-1" } });
   new StaticSite(stack, "Site", {
     domainName: "danielhodeta.com",
+    zoneName: "danielhodeta.com",
+    includeWww: true,
     webDistPath: "../web/dist",
-    apiOrigin: "abc123.execute-api.us-east-1.amazonaws.com",
+    apiOrigin: "abc.execute-api.us-east-1.amazonaws.com",
   });
   return Template.fromStack(stack);
 }
 
-describe("StaticSite", () => {
+function synthSubdomain() {
+  const app = new App();
+  const stack = new Stack(app, "S2", { env: { account: "123456789012", region: "us-east-1" } });
+  new StaticSite(stack, "Site", {
+    domainName: "staging.danielhodeta.com",
+    zoneName: "danielhodeta.com",
+    includeWww: false,
+    webDistPath: "../web/dist",
+  });
+  return Template.fromStack(stack);
+}
+
+describe("StaticSite — APEX (includeWww: true)", () => {
   it("creates a private S3 bucket (no public access)", () => {
-    const t = synth();
+    const t = synthApex();
     t.hasResourceProperties("AWS::S3::Bucket", {
       PublicAccessBlockConfiguration: {
         BlockPublicAcls: true,
@@ -27,8 +41,8 @@ describe("StaticSite", () => {
     });
   });
 
-  it("creates a CloudFront distribution serving the apex and www aliases", () => {
-    const t = synth();
+  it("creates a CloudFront distribution with both apex and www aliases", () => {
+    const t = synthApex();
     t.hasResourceProperties("AWS::CloudFront::Distribution", {
       DistributionConfig: Match.objectLike({
         Aliases: Match.arrayWith(["danielhodeta.com", "www.danielhodeta.com"]),
@@ -37,7 +51,7 @@ describe("StaticSite", () => {
   });
 
   it("rewrites 403/404 to /index.html with 200 for SPA routing", () => {
-    const t = synth();
+    const t = synthApex();
     t.hasResourceProperties("AWS::CloudFront::Distribution", {
       DistributionConfig: Match.objectLike({
         CustomErrorResponses: Match.arrayWith([
@@ -48,19 +62,18 @@ describe("StaticSite", () => {
     });
   });
 
-  it("creates Route53 A records for apex and www", () => {
-    const t = synth();
+  it("creates exactly 2 Route53 A record sets (apex + www)", () => {
+    const t = synthApex();
     t.resourceCountIs("AWS::Route53::RecordSet", 2);
   });
 
   it("deploys the web build into the bucket via a BucketDeployment", () => {
-    const t = synth();
-    // BucketDeployment provisions a custom resource backed by a Lambda.
+    const t = synthApex();
     t.resourceCountIs("Custom::CDKBucketDeployment", 1);
   });
 
   it("adds an /api/* behavior with caching disabled", () => {
-    const t = synth();
+    const t = synthApex();
     t.hasResourceProperties("AWS::CloudFront::Distribution", {
       DistributionConfig: Match.objectLike({
         CacheBehaviors: Match.arrayWith([
@@ -68,5 +81,53 @@ describe("StaticSite", () => {
         ]),
       }),
     });
+  });
+});
+
+describe("StaticSite — SUBDOMAIN (includeWww: false)", () => {
+  it("creates exactly 1 Route53 A record set (no www)", () => {
+    const t = synthSubdomain();
+    t.resourceCountIs("AWS::Route53::RecordSet", 1);
+  });
+
+  it("distribution aliases do NOT include a www record", () => {
+    const t = synthSubdomain();
+    const distributions = t.findResources("AWS::CloudFront::Distribution");
+    const aliases: string[] = [];
+    for (const dist of Object.values(distributions)) {
+      const a = (dist as Record<string, Record<string, Record<string, string[]>>>).Properties?.DistributionConfig?.Aliases;
+      if (Array.isArray(a)) aliases.push(...a);
+    }
+    expect(aliases).toContain("staging.danielhodeta.com");
+    expect(aliases).not.toContain("www.staging.danielhodeta.com");
+  });
+
+  it("creates a private S3 bucket (no public access)", () => {
+    const t = synthSubdomain();
+    t.hasResourceProperties("AWS::S3::Bucket", {
+      PublicAccessBlockConfiguration: {
+        BlockPublicAcls: true,
+        BlockPublicPolicy: true,
+        IgnorePublicAcls: true,
+        RestrictPublicBuckets: true,
+      },
+    });
+  });
+
+  it("rewrites 403/404 to /index.html with 200 for SPA routing", () => {
+    const t = synthSubdomain();
+    t.hasResourceProperties("AWS::CloudFront::Distribution", {
+      DistributionConfig: Match.objectLike({
+        CustomErrorResponses: Match.arrayWith([
+          Match.objectLike({ ErrorCode: 403, ResponseCode: 200, ResponsePagePath: "/index.html" }),
+          Match.objectLike({ ErrorCode: 404, ResponseCode: 200, ResponsePagePath: "/index.html" }),
+        ]),
+      }),
+    });
+  });
+
+  it("deploys the web build into the bucket via a BucketDeployment", () => {
+    const t = synthSubdomain();
+    t.resourceCountIs("Custom::CDKBucketDeployment", 1);
   });
 });

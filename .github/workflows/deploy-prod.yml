@@ -1,16 +1,18 @@
-name: deploy
+# Manual, gated production deploy. Cuts the apex (danielhodeta.com) over to CloudFront. Configure a 'production' GitHub Environment with required reviewers before using.
+
+name: deploy-prod
 
 on:
-  push:
-    branches: [main]
+  workflow_dispatch:
 
 permissions:
   id-token: write   # required for OIDC
   contents: read
 
 jobs:
-  deploy:
+  deploy-prod:
     runs-on: ubuntu-latest
+    environment: production
     steps:
       - uses: actions/checkout@v4
 
@@ -42,5 +44,5 @@ jobs:
           role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/bio-github-deploy
           aws-region: us-east-1
 
-      - name: CDK deploy foundation + staging
-        run: pnpm --filter @bio/infra exec cdk deploy BioFoundation BioStack-staging --require-approval never
+      - name: CDK deploy prod
+        run: pnpm --filter @bio/infra exec cdk deploy BioStack-prod --require-approval never

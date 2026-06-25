@@ -6,7 +6,7 @@ import { ContentTables } from "../lib/constructs/content-tables.js";
 function synth() {
   const app = new App();
   const stack = new Stack(app, "C", { env: { account: "123456789012", region: "us-east-1" } });
-  new ContentTables(stack, "Tables");
+  new ContentTables(stack, "Tables", { tableNamePrefix: "bio-staging" });
   return Template.fromStack(stack);
 }
 
@@ -40,9 +40,16 @@ describe("ContentTables", () => {
   it("exposes named table references", () => {
     const app = new App();
     const stack = new Stack(app, "C2", { env: { account: "123456789012", region: "us-east-1" } });
-    const tables = new ContentTables(stack, "Tables");
+    const tables = new ContentTables(stack, "Tables", { tableNamePrefix: "bio-staging" });
     expect(tables.profile).toBeDefined();
     expect(tables.posts).toBeDefined();
     expect(tables.projects).toBeDefined();
+  });
+
+  it("uses the prefix in table names (e.g. bio-staging-posts)", () => {
+    const t = synth();
+    t.hasResourceProperties("AWS::DynamoDB::Table", {
+      TableName: "bio-staging-posts",
+    });
   });
 });

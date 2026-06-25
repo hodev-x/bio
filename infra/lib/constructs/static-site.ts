@@ -10,7 +10,12 @@ import * as s3deploy from "aws-cdk-lib/aws-s3-deployment";
 import * as path from "node:path";
 
 export interface StaticSiteProps {
+  /** Primary record + ACM CN, e.g. "staging.danielhodeta.com" or "danielhodeta.com". */
   domainName: string;
+  /** Hosted zone to look up; defaults to domainName. */
+  zoneName?: string;
+  /** Also create www.<domainName> record + SAN; default false. */
+  includeWww?: boolean;
   /** Path to the built web assets (e.g. ../web/dist). */
   webDistPath: string;
   /** Domain of the HTTP API origin (e.g. xxxx.execute-api.us-east-1.amazonaws.com). */
@@ -24,9 +29,13 @@ export class StaticSite extends Construct {
   constructor(scope: Construct, id: string, props: StaticSiteProps) {
     super(scope, id);
     const { domainName } = props;
+    const zoneName = props.zoneName ?? domainName;
+    const includeWww = props.includeWww ?? false;
     const wwwName = `www.${domainName}`;
 
-    const zone = route53.HostedZone.fromLookup(this, "Zone", { domainName });
+    const domainNames = includeWww ? [domainName, wwwName] : [domainName];
+
+    const zone = route53.HostedZone.fromLookup(this, "Zone", { domainName: zoneName });
 
     this.bucket = new s3.Bucket(this, "Bucket", {
       blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
@@ -38,7 +47,7 @@ export class StaticSite extends Construct {
     // CloudFront requires the cert in us-east-1; the stack is deployed there.
     const certificate = new acm.Certificate(this, "Cert", {
       domainName,
-      subjectAlternativeNames: [wwwName],
+      ...(includeWww ? { subjectAlternativeNames: [wwwName] } : {}),
       validation: acm.CertificateValidation.fromDns(zone),
     });
 
@@ -55,7 +64,7 @@ export class StaticSite extends Construct {
 
     this.distribution = new cloudfront.Distribution(this, "Distribution", {
       defaultRootObject: "index.html",
-      domainNames: [domainName, wwwName],
+      domainNames,
       certificate,
       defaultBehavior: {
         origin: origins.S3BucketOrigin.withOriginAccessControl(this.bucket),
@@ -82,8 +91,10 @@ export class StaticSite extends Construct {
     const target = route53.RecordTarget.fromAlias(
       new targets.CloudFrontTarget(this.distribution),
     );
-    new route53.ARecord(this, "ApexA", { zone, target, recordName: domainName });
-    new route53.ARecord(this, "WwwA", { zone, target, recordName: wwwName });
+    new route53.ARecord(this, "PrimaryA", { zone, target, recordName: domainName });
+    if (includeWww) {
+      new route53.ARecord(this, "WwwA", { zone, target, recordName: wwwName });
+    }
 
     new s3deploy.BucketDeployment(this, "DeployWeb", {
       sources: [s3deploy.Source.asset(path.resolve(props.webDistPath))],

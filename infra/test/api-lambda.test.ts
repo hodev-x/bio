@@ -7,7 +7,7 @@ import { ApiLambda } from "../lib/constructs/api-lambda.js";
 function synth() {
   const app = new App();
   const stack = new Stack(app, "A", { env: { account: "123456789012", region: "us-east-1" } });
-  const tables = new ContentTables(stack, "Tables");
+  const tables = new ContentTables(stack, "Tables", { tableNamePrefix: "bio-test" });
   new ApiLambda(stack, "Api", { tables });
   return Template.fromStack(stack);
 }
