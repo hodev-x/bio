@@ -4,6 +4,7 @@ import * as lambda from "aws-cdk-lib/aws-lambda";
 import * as apigwv2 from "aws-cdk-lib/aws-apigatewayv2";
 import { HttpLambdaIntegration } from "aws-cdk-lib/aws-apigatewayv2-integrations";
 import * as path from "node:path";
+import * as fs from "node:fs";
 import type { ContentTables } from "./content-tables.js";
 
 export interface ApiLambdaProps {
@@ -24,6 +25,18 @@ export class ApiLambda extends Construct {
 
     // api/dist is produced by `pnpm --filter @bio/api build`; anchor to this file.
     const codePath = path.resolve(import.meta.dirname, "../../../api/dist");
+
+    // Fail fast at synth if the deploy asset is incomplete. The LWA exec wrapper
+    // runs /var/task/run.sh, which must be in the bundle alongside the JS entry —
+    // otherwise the Lambda 500s at runtime ("/var/task/run.sh: No such file").
+    for (const required of ["index.mjs", "run.sh"]) {
+      if (!fs.existsSync(path.join(codePath, required))) {
+        throw new Error(
+          `ApiLambda: missing ${required} in ${codePath}. ` +
+            "Run `pnpm --filter @bio/api build` before synth/deploy.",
+        );
+      }
+    }
 
     this.fn = new lambda.Function(this, "Fn", {
       runtime: lambda.Runtime.NODEJS_20_X,
