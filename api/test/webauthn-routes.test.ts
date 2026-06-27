@@ -408,6 +408,40 @@ describe("POST /api/auth/login/verify", () => {
     });
     expect(res.statusCode).toBe(401);
   });
+
+  it("returns 401 when userVerified is false (UV required)", async () => {
+    const store = makeFakeStore();
+    await store.saveCredential({
+      id: FAKE_CRED_ID,
+      type: "passkey",
+      publicKey: FAKE_PUBLIC_KEY_HEX,
+      counter: 0,
+    });
+    await store.saveChallenge("flow-z", FAKE_CHALLENGE, 60);
+    const fakeVerifyAuthenticationNoUV = async (_opts: unknown) => ({
+      verified: true,
+      authenticationInfo: {
+        credentialID: FAKE_CRED_ID,
+        newCounter: 1,
+        userVerified: false,
+        credentialDeviceType: "singleDevice" as const,
+        credentialBackedUp: false,
+        origin: "http://localhost:3000",
+        rpID: "localhost",
+      },
+    });
+    const app = buildTestApp(store, {
+      doVerifyAuthentication: fakeVerifyAuthenticationNoUV,
+    });
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/auth/login/verify",
+      payload: { id: FAKE_CRED_ID },
+      cookies: { flowId: "flow-z" },
+    });
+    expect(res.statusCode).toBe(401);
+    expect(res.json().error).toBe("user verification required");
+  });
 });
 
 describe("POST /api/auth/refresh", () => {

@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import {
   DynamoDBDocumentClient,
   PutCommand,
@@ -51,8 +52,8 @@ export async function countCredentials(ddb: DynamoDBDocumentClient): Promise<num
 // ── Recovery codes ────────────────────────────────────────────────────────────
 
 /**
- * Store hashed recovery codes.  Each is stored as an item with
- * id = "recovery#<first-8-chars-of-hash>" to keep the key short and unique.
+ * Store hashed recovery codes. Each is stored as an item with id = "recovery#<uuid>"
+ * (a random UUID, so re-issuing codes never collides with or overwrites an existing row).
  */
 export async function saveRecoveryCodes(
   ddb: DynamoDBDocumentClient,
@@ -63,7 +64,7 @@ export async function saveRecoveryCodes(
       ddb.send(
         new PutCommand({
           TableName: CREDS_TABLE(),
-          Item: { id: `recovery#${hash.slice(0, 8)}`, type: "recovery", hash, used: false },
+          Item: { id: `recovery#${randomUUID()}`, type: "recovery", hash, used: false },
         }),
       ),
     ),
@@ -130,20 +131,19 @@ export async function saveChallenge(
 }
 
 /**
- * Retrieve and immediately delete a challenge (single-use).
- * Returns the challenge string, or null if not found.
+ * Atomically retrieve and delete a challenge (single-use).
+ * Uses a single DeleteCommand with ReturnValues:"ALL_OLD" to eliminate the TOCTOU race
+ * that existed when Get and Delete were two separate operations.
+ * Returns the challenge string, or null if not found or expired.
  */
 export async function consumeChallenge(
   ddb: DynamoDBDocumentClient,
   id: string,
 ): Promise<string | null> {
-  const out = await ddb.send(new GetCommand({ TableName: CHALLENGES_TABLE(), Key: { id } }));
-  const item = out.Item as { id: string; challenge: string; ttl: number } | undefined;
+  const out = await ddb.send(new DeleteCommand({ TableName: CHALLENGES_TABLE(), Key: { id }, ReturnValues: "ALL_OLD" }));
+  const item = out.Attributes as { id: string; challenge: string; ttl: number } | undefined;
   if (!item) return null;
-  // Delete first (single-use), then enforce freshness at the app layer: DynamoDB TTL deletion
-  // is best-effort (up to ~48h lag), so an expired challenge can still be readable. Reject it
-  // to prevent WebAuthn challenge replay.
-  await ddb.send(new DeleteCommand({ TableName: CHALLENGES_TABLE(), Key: { id } }));
+  // DynamoDB TTL deletion is best-effort (lazy); reject an expired challenge to prevent replay.
   if (Math.floor(Date.now() / 1000) > item.ttl) return null;
   return item.challenge;
 }

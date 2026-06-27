@@ -47,7 +47,7 @@ export async function generateRegistration(): Promise<Awaited<ReturnType<typeof 
     attestationType: "none",
     authenticatorSelection: {
       residentKey: "preferred",
-      userVerification: "preferred",
+      userVerification: "required",
     },
   });
 }
@@ -69,7 +69,7 @@ export async function generateAuthentication(): Promise<Awaited<ReturnType<typeo
   const { rpID } = rpEnv();
   return generateAuthenticationOptions({
     rpID,
-    userVerification: "preferred",
+    userVerification: "required",
   });
 }
 

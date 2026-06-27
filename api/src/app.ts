@@ -21,7 +21,12 @@ import type {
   generateRegistrationOptions,
   generateAuthenticationOptions,
 } from "@simplewebauthn/server";
-import { randomUUID } from "node:crypto";
+import { randomUUID, timingSafeEqual } from "node:crypto";
+
+function safeEqual(a: string, b: string): boolean {
+  const ab = Buffer.from(a); const bb = Buffer.from(b);
+  return ab.length === bb.length && timingSafeEqual(ab, bb);
+}
 
 type SiteContent = Awaited<ReturnType<typeof repo.getSiteContent>>;
 type PostPage = Awaited<ReturnType<typeof repo.listPosts>>;
@@ -129,7 +134,7 @@ export function buildApp(deps: AppDeps = {}): FastifyInstance {
     if (count === 0) {
       // Bootstrap gate: first passkey registration is gated by the one-time bootstrap token.
       const cfg = await getAuthConfig();
-      if (!req.body?.bootstrapToken || req.body.bootstrapToken !== cfg.passkeyBootstrapToken) {
+      if (!req.body?.bootstrapToken || !safeEqual(req.body.bootstrapToken, cfg.passkeyBootstrapToken)) {
         return reply.code(401).send({ error: "bootstrap token required for first registration" });
       }
     } else {
@@ -258,6 +263,10 @@ export function buildApp(deps: AppDeps = {}): FastifyInstance {
 
     if (!verification.verified) {
       return reply.code(401).send({ error: "authentication verification failed" });
+    }
+
+    if (!verification.authenticationInfo.userVerified) {
+      return reply.code(401).send({ error: "user verification required" });
     }
 
     // Update the stored counter to prevent replay attacks.

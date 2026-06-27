@@ -19,18 +19,16 @@ describe("auth repo", () => {
     expect(await repo.countCredentials(ddb as any)).toBe(1);
   });
 
-  it("consumeChallenge returns a fresh challenge then deletes it", async () => {
+  it("consumeChallenge returns a fresh challenge (atomic delete+read)", async () => {
     const future = Math.floor(Date.now() / 1000) + 60;
-    ddb.on(GetCommand).resolves({ Item: { id: "flow1", challenge: "abc", ttl: future } });
-    ddb.on(DeleteCommand).resolves({});
+    ddb.on(DeleteCommand).resolves({ Attributes: { id: "flow1", challenge: "abc", ttl: future } });
     expect(await repo.consumeChallenge(ddb as any, "flow1")).toBe("abc");
     expect(ddb.commandCalls(DeleteCommand)).toHaveLength(1);
   });
 
-  it("consumeChallenge rejects an expired challenge (DynamoDB TTL is lazy) and still deletes it", async () => {
+  it("consumeChallenge rejects an expired challenge (DynamoDB TTL is lazy)", async () => {
     const past = Math.floor(Date.now() / 1000) - 1;
-    ddb.on(GetCommand).resolves({ Item: { id: "flow1", challenge: "abc", ttl: past } });
-    ddb.on(DeleteCommand).resolves({});
+    ddb.on(DeleteCommand).resolves({ Attributes: { id: "flow1", challenge: "abc", ttl: past } });
     expect(await repo.consumeChallenge(ddb as any, "flow1")).toBeNull();
     expect(ddb.commandCalls(DeleteCommand)).toHaveLength(1);
   });
