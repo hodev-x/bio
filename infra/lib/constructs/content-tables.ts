@@ -9,7 +9,7 @@ export interface ContentTablesProps {
   removalPolicy?: RemovalPolicy;
 }
 
-/** One on-demand DynamoDB table per content type. */
+/** One on-demand DynamoDB table per content type, plus auth tables. */
 export class ContentTables extends Construct {
   readonly profile: dynamodb.Table;
   readonly experience: dynamodb.Table;
@@ -17,6 +17,8 @@ export class ContentTables extends Construct {
   readonly skills: dynamodb.Table;
   readonly projects: dynamodb.Table;
   readonly posts: dynamodb.Table;
+  readonly credentials: dynamodb.Table;
+  readonly authChallenges: dynamodb.Table;
 
   constructor(scope: Construct, id: string, props: ContentTablesProps) {
     super(scope, id);
@@ -50,6 +52,16 @@ export class ContentTables extends Construct {
       indexName: "gsi-by-date",
       partitionKey: { name: "type", type: dynamodb.AttributeType.STRING },
       sortKey: { name: "publishedAt", type: dynamodb.AttributeType.STRING },
+    });
+
+    this.credentials = base("Credentials", "id");
+
+    this.authChallenges = new dynamodb.Table(this, "AuthChallenges", {
+      tableName: `${prefix}-auth-challenges`,
+      partitionKey: { name: "id", type: dynamodb.AttributeType.STRING },
+      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+      removalPolicy: props.removalPolicy ?? RemovalPolicy.RETAIN,
+      timeToLiveAttribute: "ttl",
     });
   }
 }

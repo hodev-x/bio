@@ -1,6 +1,7 @@
 import { Duration } from "aws-cdk-lib";
 import { Construct } from "constructs";
 import * as lambda from "aws-cdk-lib/aws-lambda";
+import * as iam from "aws-cdk-lib/aws-iam";
 import * as apigwv2 from "aws-cdk-lib/aws-apigatewayv2";
 import { HttpLambdaIntegration } from "aws-cdk-lib/aws-apigatewayv2-integrations";
 import * as path from "node:path";
@@ -9,6 +10,8 @@ import type { ContentTables } from "./content-tables.js";
 
 export interface ApiLambdaProps {
   tables: ContentTables;
+  envName: string;
+  rpId: string;
 }
 
 // Public Lambda Web Adapter layer ARN (x86_64). Region is resolved at deploy time.
@@ -21,7 +24,7 @@ export class ApiLambda extends Construct {
 
   constructor(scope: Construct, id: string, props: ApiLambdaProps) {
     super(scope, id);
-    const { tables } = props;
+    const { tables, envName, rpId } = props;
 
     // api/dist is produced by `pnpm --filter @bio/api build`; anchor to this file.
     const codePath = path.resolve(import.meta.dirname, "../../../api/dist");
@@ -61,16 +64,34 @@ export class ApiLambda extends Construct {
         TABLE_SKILLS: tables.skills.tableName,
         TABLE_PROJECTS: tables.projects.tableName,
         TABLE_POSTS: tables.posts.tableName,
+        TABLE_CREDENTIALS: tables.credentials.tableName,
+        TABLE_AUTH_CHALLENGES: tables.authChallenges.tableName,
+        SSM_PREFIX: `/bio/${envName}`,
+        RP_ID: rpId,
+        RP_ORIGIN: `https://${rpId}`,
+        RP_NAME: "Daniel Hodeta",
       },
     });
 
-    // Read-only grants (writes come in Plan 3).
+    // Read-only grants for content tables.
     tables.profile.grantReadData(this.fn);
     tables.experience.grantReadData(this.fn);
     tables.education.grantReadData(this.fn);
     tables.skills.grantReadData(this.fn);
     tables.projects.grantReadData(this.fn);
     tables.posts.grantReadData(this.fn);
+
+    // Auth tables need read+write (challenge create/delete, credential create/update).
+    tables.credentials.grantReadWriteData(this.fn);
+    tables.authChallenges.grantReadWriteData(this.fn);
+
+    // SSM: allow reading auth secrets under the env prefix.
+    this.fn.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ["ssm:GetParameter", "ssm:GetParameters"],
+        resources: [`arn:aws:ssm:*:*:parameter/bio/${envName}/*`],
+      }),
+    );
 
     this.httpApi = new apigwv2.HttpApi(this, "HttpApi", {
       defaultIntegration: new HttpLambdaIntegration("FnIntegration", this.fn),

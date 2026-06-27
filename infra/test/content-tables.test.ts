@@ -11,9 +11,9 @@ function synth() {
 }
 
 describe("ContentTables", () => {
-  it("creates 6 on-demand tables", () => {
+  it("creates 8 on-demand tables (6 content + credentials + authChallenges)", () => {
     const t = synth();
-    t.resourceCountIs("AWS::DynamoDB::Table", 6);
+    t.resourceCountIs("AWS::DynamoDB::Table", 8);
     // all on-demand (PAY_PER_REQUEST => no ProvisionedThroughput)
     const tables = t.findResources("AWS::DynamoDB::Table");
     for (const id of Object.keys(tables)) {
@@ -50,6 +50,19 @@ describe("ContentTables", () => {
     const t = synth();
     t.hasResourceProperties("AWS::DynamoDB::Table", {
       TableName: "bio-staging-posts",
+    });
+  });
+
+  it("creates a credentials table and a TTL challenges table", () => {
+    const t = synth();
+    // 6 content + credentials + challenges = 8 tables
+    t.resourceCountIs("AWS::DynamoDB::Table", 8);
+    t.hasResourceProperties("AWS::DynamoDB::Table", {
+      TableName: "bio-staging-credentials",
+    });
+    t.hasResourceProperties("AWS::DynamoDB::Table", {
+      TableName: "bio-staging-auth-challenges",
+      TimeToLiveSpecification: { AttributeName: "ttl", Enabled: true },
     });
   });
 });

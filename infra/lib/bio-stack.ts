@@ -4,6 +4,7 @@ import { Construct } from "constructs";
 import { StaticSite } from "./constructs/static-site.js";
 import { ContentTables } from "./constructs/content-tables.js";
 import { ApiLambda } from "./constructs/api-lambda.js";
+import { AuthSecrets } from "./constructs/auth-secrets.js";
 
 export interface BioStackProps extends StackProps {
   envName: string;     // "staging" | "prod"
@@ -25,7 +26,8 @@ export class BioStack extends Stack {
       tableNamePrefix: `bio-${props.envName}`,
       removalPolicy: isProd ? RemovalPolicy.RETAIN : RemovalPolicy.DESTROY,
     });
-    const api = new ApiLambda(this, "Api", { tables });
+    new AuthSecrets(this, "Auth", { envName: props.envName });
+    const api = new ApiLambda(this, "Api", { tables, envName: props.envName, rpId: siteDomain });
     const apiOrigin = Fn.select(2, Fn.split("/", api.httpApi.apiEndpoint));
 
     const site = new StaticSite(this, "Site", {
