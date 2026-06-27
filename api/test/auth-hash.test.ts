@@ -13,10 +13,13 @@ describe("hash", () => {
     expect(await verifySecret("x", "not-a-valid-hash")).toBe(false);
   });
 
-  it("generates N unique recovery codes", () => {
+  it("generates N unique, well-formed recovery codes (always 12 chars)", () => {
     const codes = generateRecoveryCodes(8);
     expect(codes).toHaveLength(8);
     expect(new Set(codes).size).toBe(8);
-    expect(codes[0]).toMatch(/^[a-z0-9-]+$/);
+    // every code is exactly xxxx-xxxx-xxxx (no truncated/empty segments)
+    for (const c of codes) {
+      expect(c).toMatch(/^[a-z0-9]{4}-[a-z0-9]{4}-[a-z0-9]{4}$/);
+    }
   });
 });

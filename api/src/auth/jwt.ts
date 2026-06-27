@@ -31,6 +31,14 @@ export interface Claims {
 }
 
 export async function verifyToken(key: string, token: string): Promise<Claims> {
-  const { payload } = await jwtVerify(token, secret(key), { issuer: ISSUER, audience: AUDIENCE });
-  return { sub: String(payload.sub), typ: payload.typ as "access" | "refresh" };
+  const { payload } = await jwtVerify(token, secret(key), {
+    issuer: ISSUER,
+    audience: AUDIENCE,
+    algorithms: ["HS256"], // pin the algorithm explicitly (defence in depth)
+  });
+  const typ = payload.typ;
+  if (typ !== "access" && typ !== "refresh") {
+    throw new Error("JWT missing or invalid typ claim");
+  }
+  return { sub: String(payload.sub), typ };
 }
