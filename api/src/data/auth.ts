@@ -5,6 +5,7 @@ import {
   DeleteCommand,
   ScanCommand,
 } from "@aws-sdk/lib-dynamodb";
+import { ConditionalCheckFailedException } from "@aws-sdk/client-dynamodb";
 
 // Table names from env (set by Lambda environment / CDK).
 const CREDS_TABLE = () => process.env.TABLE_CREDENTIALS ?? "bio-credentials";
@@ -85,14 +86,23 @@ export async function consumeRecoveryCode(
   for (const item of items) {
     if (item.type !== "recovery" || item.used || !item.hash) continue;
     if (await verifySecret(code, item.hash)) {
-      // Mark as used.
-      await ddb.send(
-        new PutCommand({
-          TableName: CREDS_TABLE(),
-          Item: { ...item, used: true },
-        }),
-      );
-      return true;
+      // Atomic single-use: only succeed if the row is still unused. Closes the TOCTOU window
+      // where two concurrent requests could both pass the scan+verify before either marks it used.
+      try {
+        await ddb.send(
+          new PutCommand({
+            TableName: CREDS_TABLE(),
+            Item: { ...item, used: true },
+            ConditionExpression: "attribute_exists(id) AND #u = :false",
+            ExpressionAttributeNames: { "#u": "used" },
+            ExpressionAttributeValues: { ":false": false },
+          }),
+        );
+        return true;
+      } catch (err) {
+        if (err instanceof ConditionalCheckFailedException) return false; // already consumed
+        throw err;
+      }
     }
   }
   return false;
@@ -130,6 +140,10 @@ export async function consumeChallenge(
   const out = await ddb.send(new GetCommand({ TableName: CHALLENGES_TABLE(), Key: { id } }));
   const item = out.Item as { id: string; challenge: string; ttl: number } | undefined;
   if (!item) return null;
+  // Delete first (single-use), then enforce freshness at the app layer: DynamoDB TTL deletion
+  // is best-effort (up to ~48h lag), so an expired challenge can still be readable. Reject it
+  // to prevent WebAuthn challenge replay.
   await ddb.send(new DeleteCommand({ TableName: CHALLENGES_TABLE(), Key: { id } }));
+  if (Math.floor(Date.now() / 1000) > item.ttl) return null;
   return item.challenge;
 }

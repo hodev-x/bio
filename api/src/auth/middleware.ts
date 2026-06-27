@@ -8,7 +8,8 @@ export interface AuthCtx {
 // Returns the principal sub if a valid access token is present, else null.
 export async function principalFrom(req: FastifyRequest, ctx: AuthCtx): Promise<string | null> {
   const header = req.headers["authorization"];
-  if (!header || !header.startsWith("Bearer ")) return null;
+  // RFC 9110: the auth-scheme token is case-insensitive.
+  if (!header || !header.toLowerCase().startsWith("bearer ")) return null;
   try {
     const claims = await verifyToken(await ctx.getKey(), header.slice(7));
     // Security: refresh tokens must NOT be accepted where an access token is required.
