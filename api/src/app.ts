@@ -1,11 +1,27 @@
 import Fastify, { type FastifyInstance } from "fastify";
+import fastifyCookie from "@fastify/cookie";
 import { makeDocClient } from "./data/client.js";
 import * as repo from "./data/content.js";
+import * as authRepo from "./data/auth.js";
 import type { DynamoDBDocumentClient } from "@aws-sdk/lib-dynamodb";
 import { loadAuthConfig } from "./auth/config.js";
 import { verifySecret } from "./auth/hash.js";
-import { signAccessToken } from "./auth/jwt.js";
+import { hashSecret, generateRecoveryCodes } from "./auth/hash.js";
+import { signAccessToken, signRefreshToken, verifyToken } from "./auth/jwt.js";
 import { makeRequireAuth, principalFrom } from "./auth/middleware.js";
+import {
+  generateRegistration,
+  verifyRegistration,
+  generateAuthentication,
+  verifyAuthentication,
+} from "./auth/webauthn.js";
+import type { VerifyRegistrationResponseOpts, VerifyAuthenticationResponseOpts } from "@simplewebauthn/server";
+import type { VerifiedRegistrationResponse, VerifiedAuthenticationResponse } from "@simplewebauthn/server";
+import type {
+  generateRegistrationOptions,
+  generateAuthenticationOptions,
+} from "@simplewebauthn/server";
+import { randomUUID } from "node:crypto";
 
 type SiteContent = Awaited<ReturnType<typeof repo.getSiteContent>>;
 type PostPage = Awaited<ReturnType<typeof repo.listPosts>>;
@@ -16,16 +32,38 @@ export interface AuthConfigShape {
   passkeyBootstrapToken: string;
 }
 
+/** Injected WebAuthn function signatures (mirrors the real wrappers for test injection). */
+export type GenerateRegistrationFn = () => Promise<Awaited<ReturnType<typeof generateRegistrationOptions>>>;
+export type VerifyRegistrationFn = (opts: VerifyRegistrationResponseOpts) => Promise<VerifiedRegistrationResponse>;
+export type GenerateAuthenticationFn = () => Promise<Awaited<ReturnType<typeof generateAuthenticationOptions>>>;
+export type VerifyAuthenticationFn = (opts: VerifyAuthenticationResponseOpts) => Promise<VerifiedAuthenticationResponse>;
+
 export interface AppDeps {
   getSiteContent?: (opts?: { includeHidden?: boolean }) => Promise<SiteContent>;
   listPosts?: (opts?: { limit?: number }) => Promise<PostPage>;
   getPost?: (slug: string) => Promise<repo.Item | null>;
   getAuthConfig?: () => Promise<AuthConfigShape>;
   verifyMcpSecret?: (secret: string) => Promise<boolean>;
+  // Auth data layer — injectable so tests don't touch DynamoDB.
+  countCredentials?: () => Promise<number>;
+  getCredential?: (id: string) => Promise<authRepo.Credential | null>;
+  saveCredential?: (cred: authRepo.Credential) => Promise<void>;
+  saveChallenge?: (id: string, challenge: string, ttl: number) => Promise<void>;
+  consumeChallenge?: (id: string) => Promise<string | null>;
+  saveRecoveryCodes?: (hashes: string[]) => Promise<void>;
+  consumeRecoveryCode?: (code: string) => Promise<boolean>;
+  // WebAuthn ceremony functions — injectable for tests (no real authenticator needed).
+  doGenerateRegistration?: GenerateRegistrationFn;
+  doVerifyRegistration?: VerifyRegistrationFn;
+  doGenerateAuthentication?: GenerateAuthenticationFn;
+  doVerifyAuthentication?: VerifyAuthenticationFn;
 }
 
 export function buildApp(deps: AppDeps = {}): FastifyInstance {
   const app = Fastify({ logger: false });
+
+  // Register cookie plugin (required for flowId + refresh token cookies).
+  void app.register(fastifyCookie);
 
   // Default deps bind to the real DynamoDB repo; tests inject fakes.
   let ddb: DynamoDBDocumentClient | undefined;
@@ -34,7 +72,7 @@ export function buildApp(deps: AppDeps = {}): FastifyInstance {
   const listPosts = deps.listPosts ?? ((opts) => repo.listPosts(client(), opts));
   const getPost = deps.getPost ?? ((slug) => repo.getPost(client(), slug));
 
-  // Auth deps: real defaults load from SSM; tests inject fakes.
+  // Auth config deps: real defaults load from SSM; tests inject fakes.
   const getAuthConfig = deps.getAuthConfig ?? (() => loadAuthConfig());
   const verifyMcpSecret =
     deps.verifyMcpSecret ??
@@ -42,6 +80,21 @@ export function buildApp(deps: AppDeps = {}): FastifyInstance {
       const cfg = await getAuthConfig();
       return verifySecret(secret, cfg.mcpClientSecretHash);
     });
+
+  // Auth data layer deps.
+  const countCredentials = deps.countCredentials ?? (() => authRepo.countCredentials(client()));
+  const getCredential = deps.getCredential ?? ((id) => authRepo.getCredential(client(), id));
+  const saveCredential = deps.saveCredential ?? ((cred) => authRepo.saveCredential(client(), cred));
+  const saveChallenge = deps.saveChallenge ?? ((id, ch, ttl) => authRepo.saveChallenge(client(), id, ch, ttl));
+  const consumeChallenge = deps.consumeChallenge ?? ((id) => authRepo.consumeChallenge(client(), id));
+  const doSaveRecoveryCodes = deps.saveRecoveryCodes ?? ((hashes) => authRepo.saveRecoveryCodes(client(), hashes));
+  const doConsumeRecoveryCode = deps.consumeRecoveryCode ?? ((code) => authRepo.consumeRecoveryCode(client(), code));
+
+  // WebAuthn ceremony deps — real defaults or injected fakes.
+  const doGenerateRegistration = deps.doGenerateRegistration ?? generateRegistration;
+  const doVerifyRegistration = deps.doVerifyRegistration ?? verifyRegistration;
+  const doGenerateAuthentication = deps.doGenerateAuthentication ?? generateAuthentication;
+  const doVerifyAuthentication = deps.doVerifyAuthentication ?? verifyAuthentication;
 
   // Auth context for middleware (reads signing key from config).
   const authCtx = { getKey: async () => (await getAuthConfig()).jwtSigningKey };
@@ -63,6 +116,222 @@ export function buildApp(deps: AppDeps = {}): FastifyInstance {
   app.get("/api/auth/me", { preHandler: requireAuth }, async (req) => ({
     sub: (req as unknown as { principal?: string }).principal,
   }));
+
+  // ── Passkey registration ─────────────────────────────────────────────────────
+
+  /**
+   * POST /api/auth/register/options
+   * First registration (no creds in DB): requires bootstrapToken in body.
+   * Subsequent registrations: require a valid access token (admin already logged in).
+   */
+  app.post<{ Body: { bootstrapToken?: string } }>("/api/auth/register/options", async (req, reply) => {
+    const count = await countCredentials();
+    if (count === 0) {
+      // Bootstrap gate: first passkey registration is gated by the one-time bootstrap token.
+      const cfg = await getAuthConfig();
+      if (!req.body?.bootstrapToken || req.body.bootstrapToken !== cfg.passkeyBootstrapToken) {
+        return reply.code(401).send({ error: "bootstrap token required for first registration" });
+      }
+    } else {
+      // Subsequent registrations: require a valid access token (logged-in admin).
+      const sub = await principalFrom(req, authCtx);
+      if (!sub) return reply.code(401).send({ error: "unauthorized" });
+    }
+
+    const options = await doGenerateRegistration();
+    const flowId = randomUUID();
+    await saveChallenge(flowId, options.challenge, 60);
+
+    reply.setCookie("flowId", flowId, {
+      httpOnly: true,
+      secure: true,
+      sameSite: "strict",
+      path: "/api/auth",
+    });
+
+    return options;
+  });
+
+  /**
+   * POST /api/auth/register/verify
+   * Completes passkey registration. Reads flowId cookie, verifies the response,
+   * stores the credential, generates recovery codes (returned once, plaintext).
+   */
+  app.post("/api/auth/register/verify", async (req, reply) => {
+    const flowId = req.cookies?.flowId;
+    if (!flowId) return reply.code(401).send({ error: "missing flow cookie" });
+
+    const challenge = await consumeChallenge(flowId);
+    if (!challenge) return reply.code(401).send({ error: "challenge expired or invalid" });
+
+    const verification = await doVerifyRegistration({
+      response: req.body as Parameters<typeof doVerifyRegistration>[0]["response"],
+      expectedChallenge: challenge,
+      expectedOrigin: process.env.RP_ORIGIN ?? "http://localhost:3000",
+      expectedRPID: process.env.RP_ID ?? "localhost",
+    });
+
+    if (!verification.verified || !verification.registrationInfo) {
+      return reply.code(400).send({ error: "registration verification failed" });
+    }
+
+    const { credential } = verification.registrationInfo;
+    // publicKey is Uint8Array in v11; store as hex for DynamoDB.
+    const publicKeyHex = Buffer.from(credential.publicKey).toString("hex");
+
+    await saveCredential({
+      id: credential.id,
+      type: "passkey",
+      publicKey: publicKeyHex,
+      counter: credential.counter,
+      transports: (credential.transports ?? []) as string[],
+    });
+
+    // Generate recovery codes: plaintext returned once, hashes stored.
+    const plainCodes = generateRecoveryCodes(8);
+    const hashes = await Promise.all(plainCodes.map((c) => hashSecret(c)));
+    await doSaveRecoveryCodes(hashes);
+
+    reply.clearCookie("flowId", { path: "/api/auth" });
+
+    return { verified: true, recoveryCodes: plainCodes };
+  });
+
+  // ── Passkey login ─────────────────────────────────────────────────────────────
+
+  /**
+   * POST /api/auth/login/options
+   * Generates WebAuthn authentication options and stores the challenge.
+   */
+  app.post("/api/auth/login/options", async (_req, reply) => {
+    const options = await doGenerateAuthentication();
+    const flowId = randomUUID();
+    await saveChallenge(flowId, options.challenge, 60);
+
+    reply.setCookie("flowId", flowId, {
+      httpOnly: true,
+      secure: true,
+      sameSite: "strict",
+      path: "/api/auth",
+    });
+
+    return options;
+  });
+
+  /**
+   * POST /api/auth/login/verify
+   * Verifies the WebAuthn authentication response.
+   * On success: updates counter, issues access token, sets refresh cookie.
+   */
+  app.post("/api/auth/login/verify", async (req, reply) => {
+    const flowId = req.cookies?.flowId;
+    if (!flowId) return reply.code(401).send({ error: "missing flow cookie" });
+
+    const challenge = await consumeChallenge(flowId);
+    if (!challenge) return reply.code(401).send({ error: "challenge expired or invalid" });
+
+    // Look up the credential by id from the request body.
+    const body = req.body as { id?: string };
+    const credentialId = body?.id;
+    if (!credentialId) return reply.code(400).send({ error: "missing credential id" });
+
+    const stored = await getCredential(credentialId);
+    if (!stored || stored.type !== "passkey" || !stored.publicKey) {
+      return reply.code(401).send({ error: "credential not found" });
+    }
+
+    // Reconstruct the WebAuthnCredential for verifyAuthenticationResponse.
+    const credential = {
+      id: stored.id,
+      publicKey: new Uint8Array(Buffer.from(stored.publicKey, "hex")),
+      counter: stored.counter ?? 0,
+      transports: (stored.transports ?? []) as Parameters<typeof doVerifyAuthentication>[0]["credential"]["transports"],
+    };
+
+    const verification = await doVerifyAuthentication({
+      response: req.body as Parameters<typeof doVerifyAuthentication>[0]["response"],
+      expectedChallenge: challenge,
+      expectedOrigin: process.env.RP_ORIGIN ?? "http://localhost:3000",
+      expectedRPID: process.env.RP_ID ?? "localhost",
+      credential,
+    });
+
+    if (!verification.verified) {
+      return reply.code(401).send({ error: "authentication verification failed" });
+    }
+
+    // Update the stored counter to prevent replay attacks.
+    await saveCredential({
+      ...stored,
+      counter: verification.authenticationInfo.newCounter,
+    });
+
+    const cfg = await getAuthConfig();
+    const accessToken = await signAccessToken(cfg.jwtSigningKey, { sub: "admin" });
+    const refreshToken = await signRefreshToken(cfg.jwtSigningKey, { sub: "admin" });
+
+    reply.clearCookie("flowId", { path: "/api/auth" });
+    reply.setCookie("refreshToken", refreshToken, {
+      httpOnly: true,
+      secure: true,
+      sameSite: "strict",
+      path: "/api/auth",
+    });
+
+    return { accessToken, expiresIn: 900 };
+  });
+
+  // ── Refresh / Logout / Recovery ───────────────────────────────────────────────
+
+  /**
+   * POST /api/auth/refresh
+   * Exchanges a valid refresh cookie for a new access token.
+   * Enforces typ === "refresh" to prevent access tokens being used here.
+   */
+  app.post("/api/auth/refresh", async (req, reply) => {
+    const refreshToken = req.cookies?.refreshToken;
+    if (!refreshToken) return reply.code(401).send({ error: "no refresh token" });
+
+    const cfg = await getAuthConfig();
+    let claims;
+    try {
+      claims = await verifyToken(cfg.jwtSigningKey, refreshToken);
+    } catch {
+      return reply.code(401).send({ error: "invalid refresh token" });
+    }
+
+    // Security: only refresh tokens are accepted here.
+    if (claims.typ !== "refresh") return reply.code(401).send({ error: "invalid token type" });
+
+    const accessToken = await signAccessToken(cfg.jwtSigningKey, { sub: claims.sub });
+    return { accessToken, expiresIn: 900 };
+  });
+
+  /**
+   * POST /api/auth/logout
+   * Clears the refresh token cookie (client-side invalidation).
+   */
+  app.post("/api/auth/logout", async (_req, reply) => {
+    reply.clearCookie("refreshToken", { path: "/api/auth" });
+    return { ok: true };
+  });
+
+  /**
+   * POST /api/auth/recovery
+   * Exchanges a valid one-time recovery code for an access token.
+   * The code is consumed (marked used) and cannot be reused.
+   */
+  app.post<{ Body: { code?: string } }>("/api/auth/recovery", async (req, reply) => {
+    const code = req.body?.code ?? "";
+    if (!code) return reply.code(401).send({ error: "recovery code required" });
+
+    const ok = await doConsumeRecoveryCode(code);
+    if (!ok) return reply.code(401).send({ error: "invalid or already-used recovery code" });
+
+    const cfg = await getAuthConfig();
+    const accessToken = await signAccessToken(cfg.jwtSigningKey, { sub: "admin" });
+    return { accessToken, expiresIn: 900 };
+  });
 
   // ── Content routes ───────────────────────────────────────────────────────────
 
