@@ -4,7 +4,6 @@ import { Construct } from "constructs";
 import { StaticSite } from "./constructs/static-site.js";
 import { ContentTables } from "./constructs/content-tables.js";
 import { ApiLambda } from "./constructs/api-lambda.js";
-import { AuthSecrets } from "./constructs/auth-secrets.js";
 
 export interface BioStackProps extends StackProps {
   envName: string;     // "staging" | "prod"
@@ -26,7 +25,10 @@ export class BioStack extends Stack {
       tableNamePrefix: `bio-${props.envName}`,
       removalPolicy: isProd ? RemovalPolicy.RETAIN : RemovalPolicy.DESTROY,
     });
-    new AuthSecrets(this, "Auth", { envName: props.envName });
+    // Auth secrets (jwt key, mcp hash, bootstrap token) are NOT managed by CloudFormation:
+    // CFN can't create SecureString params. They're provisioned out-of-band as SecureString by
+    // `pnpm --filter @bio/api provision:secrets --env <env>`; the Lambda has IAM read on
+    // /bio/<env>/* and fails loud (config.ts) if they're missing/placeholder.
     const api = new ApiLambda(this, "Api", { tables, envName: props.envName, rpId: siteDomain });
     const apiOrigin = Fn.select(2, Fn.split("/", api.httpApi.apiEndpoint));
 
