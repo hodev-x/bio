@@ -6,3 +6,4 @@ cdk.context.json
 .env.*
 *.log
 .DS_Store
+docs/
