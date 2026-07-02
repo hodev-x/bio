@@ -6,6 +6,8 @@ export interface DeployPipelineProps {
   githubRepo: string;
   /** Git branch allowed to assume the deploy role. Defaults to "main". */
   branch?: string;
+  /** GitHub Environment used by the gated prod workflow. Defaults to "production". */
+  environment?: string;
 }
 
 export class DeployPipeline extends Construct {
@@ -20,18 +22,24 @@ export class DeployPipeline extends Construct {
     });
 
     const branch = props.branch ?? "main";
+    const environment = props.environment ?? "production";
+    const repo = `${props.githubOwner}/${props.githubRepo}`;
 
     // Exact-match both conditions: the token must be issued for AWS STS (aud) AND
-    // originate from a push to the allowed branch of this exact repo (sub). Using
-    // StringEquals on the branch ref (not a "repo:owner/name:*" wildcard) keeps PRs
-    // from forks and other branches from assuming the production deploy role.
+    // originate from this exact repo (sub). GitHub emits two different `sub` forms:
+    //   - push to the branch (staging deploy)      -> repo:<repo>:ref:refs/heads/<branch>
+    //   - environment-gated prod workflow          -> repo:<repo>:environment:<environment>
+    // Both are allowed (a StringEquals value list is an OR). We still avoid a
+    // "repo:<repo>:*" wildcard, so PRs, forks, and other branches can't assume the role.
     this.deployRole = new iam.Role(this, "DeployRole", {
       roleName: "bio-github-deploy",
       assumedBy: new iam.WebIdentityPrincipal(provider.openIdConnectProviderArn, {
         StringEquals: {
           "token.actions.githubusercontent.com:aud": "sts.amazonaws.com",
-          "token.actions.githubusercontent.com:sub":
-            `repo:${props.githubOwner}/${props.githubRepo}:ref:refs/heads/${branch}`,
+          "token.actions.githubusercontent.com:sub": [
+            `repo:${repo}:ref:refs/heads/${branch}`,
+            `repo:${repo}:environment:${environment}`,
+          ],
         },
       }),
       description: "Role assumed by GitHub Actions to deploy the bio stack",

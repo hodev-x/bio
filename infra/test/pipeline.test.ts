@@ -21,7 +21,7 @@ describe("DeployPipeline", () => {
     });
   });
 
-  it("trusts only pushes to main of the hodev-x/bio repo (exact aud + sub)", () => {
+  it("trusts pushes to main and the gated production environment (exact aud + sub)", () => {
     const t = synth();
     t.hasResourceProperties("AWS::IAM::Role", {
       AssumeRolePolicyDocument: Match.objectLike({
@@ -30,8 +30,12 @@ describe("DeployPipeline", () => {
             Condition: Match.objectLike({
               StringEquals: Match.objectLike({
                 "token.actions.githubusercontent.com:aud": "sts.amazonaws.com",
-                "token.actions.githubusercontent.com:sub":
+                // GitHub emits a different `sub` for the branch push (staging) vs the
+                // environment-gated prod workflow; both are allowed (StringEquals list = OR).
+                "token.actions.githubusercontent.com:sub": Match.arrayWith([
                   "repo:hodev-x/bio:ref:refs/heads/main",
+                  "repo:hodev-x/bio:environment:production",
+                ]),
               }),
             }),
           }),
