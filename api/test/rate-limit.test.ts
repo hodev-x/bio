@@ -29,18 +29,19 @@ describe("auth rate limiting", () => {
     }
   });
 
-  it("keys the limiter on the rightmost X-Forwarded-For entry, resisting a spoofed leftmost", async () => {
+  it("keys on the CloudFront-appended viewer IP: spoofed leftmost and rotating CF egress share one bucket", async () => {
     const app = await buildApp({ ...authDeps });
-    // Same rightmost entry (the closest infra hop's IP) on every request, but a
-    // different, attacker-controlled leftmost entry each time. If the limiter
-    // keyed on req.ip (leftmost under trustProxy), each request would land in
-    // a fresh bucket and never hit 429.
+    // Via-CloudFront shape: [attacker junk, viewer (appended by CloudFront),
+    // CF egress (appended by API GW)]. The junk AND the egress vary per
+    // request; only the viewer entry is stable. Keying on req.ip (leftmost)
+    // or on the rightmost entry would give every request a fresh bucket and
+    // never 429 — the latter is exactly what staging demonstrated.
     for (let i = 0; i < 10; i++) {
       const res = await app.inject({
         method: "POST",
         url: "/api/auth/token",
         payload: { secret: "x" },
-        headers: { "x-forwarded-for": `10.0.0.${i}, 198.51.100.7` },
+        headers: { "x-forwarded-for": `10.0.0.${i}, 203.0.113.9, 64.252.100.${i}` },
       });
       expect(res.statusCode).toBe(401); // limited but not yet blocked
     }
@@ -48,7 +49,27 @@ describe("auth rate limiting", () => {
       method: "POST",
       url: "/api/auth/token",
       payload: { secret: "x" },
-      headers: { "x-forwarded-for": "10.0.0.99, 198.51.100.7" },
+      headers: { "x-forwarded-for": "10.0.0.99, 203.0.113.9, 64.252.100.99" },
+    });
+    expect(blocked.statusCode).toBe(429);
+  });
+
+  it("falls back to the sole X-Forwarded-For entry when only one is present (direct API GW path)", async () => {
+    const app = await buildApp({ ...authDeps });
+    for (let i = 0; i < 10; i++) {
+      const res = await app.inject({
+        method: "POST",
+        url: "/api/auth/token",
+        payload: { secret: "x" },
+        headers: { "x-forwarded-for": "198.51.100.7" },
+      });
+      expect(res.statusCode).toBe(401);
+    }
+    const blocked = await app.inject({
+      method: "POST",
+      url: "/api/auth/token",
+      payload: { secret: "x" },
+      headers: { "x-forwarded-for": "198.51.100.7" },
     });
     expect(blocked.statusCode).toBe(429);
   });

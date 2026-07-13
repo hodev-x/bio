@@ -36,11 +36,21 @@ function safeEqual(a: string, b: string): boolean {
 // Rate-limit key: rightmost X-Forwarded-For entry — appended by the closest
 // infrastructure hop (API GW / CloudFront), unlike the leftmost, which the
 // caller controls and could rotate to dodge the limiter.
+// Rate-limit key, anchored from the RIGHT of X-Forwarded-For because each
+// proxy appends the peer it accepted the connection from:
+//   via CloudFront:  [caller junk..., viewer (by CloudFront), CF egress (by API GW)]
+//   direct API GW:   [caller junk..., real peer (by API GW)]
+// The rightmost entry is a rotating CloudFront egress IP on the normal path
+// (useless as a key), so prefer the second-from-right — the viewer IP that
+// CloudFront itself appended, which a caller cannot position-spoof through
+// CloudFront. Callers hitting the execute-api URL directly with a forged
+// header can still rotate buckets; closing that requires an origin-verify
+// header or WAF (tracked as a follow-up in the platform hub).
 function clientKey(req: FastifyRequest): string {
   const xff = req.headers["x-forwarded-for"];
-  const raw = Array.isArray(xff) ? xff[xff.length - 1] : xff;
-  const rightmost = raw?.split(",").at(-1)?.trim();
-  return rightmost || req.ip;
+  const raw = Array.isArray(xff) ? xff.join(",") : xff;
+  const entries = (raw ?? "").split(",").map((s) => s.trim()).filter(Boolean);
+  return entries.at(-2) ?? entries.at(-1) ?? req.ip;
 }
 
 type SiteContent = Awaited<ReturnType<typeof repo.getSiteContent>>;
