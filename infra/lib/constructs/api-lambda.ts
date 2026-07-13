@@ -73,13 +73,13 @@ export class ApiLambda extends Construct {
       },
     });
 
-    // Read-only grants for content tables.
-    tables.profile.grantReadData(this.fn);
-    tables.experience.grantReadData(this.fn);
-    tables.education.grantReadData(this.fn);
-    tables.skills.grantReadData(this.fn);
-    tables.projects.grantReadData(this.fn);
-    tables.posts.grantReadData(this.fn);
+    // Content tables need read+write (write routes: PutItem/UpdateItem/DeleteItem).
+    tables.profile.grantReadWriteData(this.fn);
+    tables.experience.grantReadWriteData(this.fn);
+    tables.education.grantReadWriteData(this.fn);
+    tables.skills.grantReadWriteData(this.fn);
+    tables.projects.grantReadWriteData(this.fn);
+    tables.posts.grantReadWriteData(this.fn);
 
     // Auth tables need read+write (challenge create/delete, credential create/update).
     tables.credentials.grantReadWriteData(this.fn);

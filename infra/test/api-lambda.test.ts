@@ -50,4 +50,46 @@ describe("ApiLambda", () => {
     expect(json).toContain("dynamodb:GetItem");
     expect(json).toContain("dynamodb:Query");
   });
+
+  it("grants the function write access to each content table (write routes need Put/Update/Delete)", () => {
+    const t = synth();
+    const policies = t.findResources("AWS::IAM::Policy");
+    const policyDoc = Object.values(policies)[0] as {
+      Properties: { PolicyDocument: { Statement: Array<{ Action: unknown; Resource: unknown }> } };
+    };
+    const statements = policyDoc.Properties.PolicyDocument.Statement;
+
+    // Content tables: profile, experience, education, skills, projects, posts.
+    // (Auth tables — credentials, authChallenges — already get read+write and are
+    // intentionally excluded here.)
+    const contentTableLogicalIdPrefixes = [
+      "TablesProfile",
+      "TablesExperience",
+      "TablesEducation",
+      "TablesSkills",
+      "TablesProjects",
+      "TablesPosts",
+    ];
+
+    for (const prefix of contentTableLogicalIdPrefixes) {
+      const writeStatement = statements.find((s) => {
+        const actions = Array.isArray(s.Action) ? s.Action : [];
+        return (
+          JSON.stringify(s.Resource).includes(`"${prefix}`) &&
+          actions.includes("dynamodb:PutItem")
+        );
+      });
+      expect(
+        writeStatement,
+        `expected a write-granting IAM statement referencing ${prefix}`,
+      ).toBeDefined();
+      expect(writeStatement!.Action).toEqual(
+        expect.arrayContaining([
+          "dynamodb:PutItem",
+          "dynamodb:UpdateItem",
+          "dynamodb:DeleteItem",
+        ]),
+      );
+    }
+  });
 });
