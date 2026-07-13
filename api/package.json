@@ -11,6 +11,7 @@
     "provision:secrets": "tsx scripts/provision-secrets.ts"
   },
   "dependencies": {
+    "@bio/shared": "workspace:*",
     "@aws-sdk/client-dynamodb": "^3.660.0",
     "@aws-sdk/client-ssm": "^3.660.0",
     "@aws-sdk/lib-dynamodb": "^3.660.0",
