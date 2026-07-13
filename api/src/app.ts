@@ -1,4 +1,4 @@
-import Fastify, { type FastifyInstance, type FastifyReply } from "fastify";
+import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest } from "fastify";
 import fastifyCookie from "@fastify/cookie";
 import rateLimit from "@fastify/rate-limit";
 import { makeDocClient } from "./data/client.js";
@@ -31,6 +31,16 @@ import { randomUUID, timingSafeEqual } from "node:crypto";
 function safeEqual(a: string, b: string): boolean {
   const ab = Buffer.from(a); const bb = Buffer.from(b);
   return ab.length === bb.length && timingSafeEqual(ab, bb);
+}
+
+// Rate-limit key: rightmost X-Forwarded-For entry — appended by the closest
+// infrastructure hop (API GW / CloudFront), unlike the leftmost, which the
+// caller controls and could rotate to dodge the limiter.
+function clientKey(req: FastifyRequest): string {
+  const xff = req.headers["x-forwarded-for"];
+  const raw = Array.isArray(xff) ? xff[xff.length - 1] : xff;
+  const rightmost = raw?.split(",").at(-1)?.trim();
+  return rightmost || req.ip;
 }
 
 type SiteContent = Awaited<ReturnType<typeof repo.getSiteContent>>;
@@ -85,6 +95,7 @@ export async function buildApp(deps: AppDeps = {}): Promise<FastifyInstance> {
     max: 10,
     timeWindow: "1 minute",
     allowList: (req) => !req.url.startsWith("/api/auth/"),
+    keyGenerator: clientKey,
   });
 
   // Default deps bind to the real DynamoDB repo; tests inject fakes.

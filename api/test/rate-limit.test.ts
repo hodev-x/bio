@@ -28,4 +28,28 @@ describe("auth rate limiting", () => {
       expect(res.statusCode).toBe(200);
     }
   });
+
+  it("keys the limiter on the rightmost X-Forwarded-For entry, resisting a spoofed leftmost", async () => {
+    const app = await buildApp({ ...authDeps });
+    // Same rightmost entry (the closest infra hop's IP) on every request, but a
+    // different, attacker-controlled leftmost entry each time. If the limiter
+    // keyed on req.ip (leftmost under trustProxy), each request would land in
+    // a fresh bucket and never hit 429.
+    for (let i = 0; i < 10; i++) {
+      const res = await app.inject({
+        method: "POST",
+        url: "/api/auth/token",
+        payload: { secret: "x" },
+        headers: { "x-forwarded-for": `10.0.0.${i}, 198.51.100.7` },
+      });
+      expect(res.statusCode).toBe(401); // limited but not yet blocked
+    }
+    const blocked = await app.inject({
+      method: "POST",
+      url: "/api/auth/token",
+      payload: { secret: "x" },
+      headers: { "x-forwarded-for": "10.0.0.99, 198.51.100.7" },
+    });
+    expect(blocked.statusCode).toBe(429);
+  });
 });
