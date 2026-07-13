@@ -71,6 +71,7 @@ export interface AppDeps {
   putEntity?: (type: EntityType, item: Record<string, unknown>) => Promise<void>;
   deleteEntity?: (type: EntityType, key: string) => Promise<void>;
   patchVisible?: (type: EntityType, key: string, visible: boolean) => Promise<boolean>;
+  createPost?: (item: Record<string, unknown>) => Promise<boolean>;
 }
 
 export async function buildApp(deps: AppDeps = {}): Promise<FastifyInstance> {
@@ -118,6 +119,7 @@ export async function buildApp(deps: AppDeps = {}): Promise<FastifyInstance> {
   const doVerifyAuthentication = deps.doVerifyAuthentication ?? verifyAuthentication;
 
   // Content write layer deps.
+  const createPost = deps.createPost ?? ((item) => writeRepo.createPost(client(), item));
   const putEntity = deps.putEntity ?? ((type, item) => writeRepo.putEntity(client(), type, item));
   const deleteEntity = deps.deleteEntity ?? ((type, key) => writeRepo.deleteEntity(client(), type, key));
   const patchVisible = deps.patchVisible ?? ((type, key, v) => writeRepo.patchVisible(client(), type, key, v));
@@ -423,6 +425,26 @@ export async function buildApp(deps: AppDeps = {}): Promise<FastifyInstance> {
     const found = await patchVisible(type, req.params.key, parsed.data.visible);
     if (!found) return reply.code(404).send({ error: "not found" });
     return { [KEY_BY_TYPE[type]]: req.params.key, visible: parsed.data.visible };
+  });
+
+  app.post("/api/posts", { preHandler: requireAuth }, async (req, reply) => {
+    const parsed = SCHEMA_BY_TYPE.posts.safeParse(req.body ?? {});
+    if (!parsed.success) return badRequest(reply, parsed.error.flatten().fieldErrors);
+    const created = await createPost(parsed.data as Record<string, unknown>);
+    if (!created) return reply.code(409).send({ error: "slug already exists" });
+    return reply.code(201).send(parsed.data);
+  });
+
+  app.put<{ Params: { slug: string } }>("/api/posts/:slug", { preHandler: requireAuth }, async (req, reply) => {
+    const parsed = SCHEMA_BY_TYPE.posts.safeParse({ ...(req.body as object ?? {}), slug: req.params.slug });
+    if (!parsed.success) return badRequest(reply, parsed.error.flatten().fieldErrors);
+    await putEntity("posts", parsed.data as Record<string, unknown>);
+    return reply.code(200).send(parsed.data);
+  });
+
+  app.delete<{ Params: { slug: string } }>("/api/posts/:slug", { preHandler: requireAuth }, async (req, reply) => {
+    await deleteEntity("posts", req.params.slug);
+    return reply.code(204).send();
   });
 
   return app;
