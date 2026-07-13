@@ -24,6 +24,12 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
+      # @bio/shared exports resolve via its dist/, so build it before any
+      # dependent typecheck/test/build.
+      - run: pnpm --filter @bio/shared build
+
+      - run: pnpm --filter @bio/shared test
+
       - run: pnpm --filter @bio/web typecheck
 
       - run: pnpm --filter @bio/web build
