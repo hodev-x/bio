@@ -1,5 +1,6 @@
 import Fastify, { type FastifyInstance } from "fastify";
 import fastifyCookie from "@fastify/cookie";
+import rateLimit from "@fastify/rate-limit";
 import { makeDocClient } from "./data/client.js";
 import * as repo from "./data/content.js";
 import * as authRepo from "./data/auth.js";
@@ -64,11 +65,18 @@ export interface AppDeps {
   doVerifyAuthentication?: VerifyAuthenticationFn;
 }
 
-export function buildApp(deps: AppDeps = {}): FastifyInstance {
-  const app = Fastify({ logger: false });
+export async function buildApp(deps: AppDeps = {}): Promise<FastifyInstance> {
+  const app = Fastify({ logger: false, trustProxy: true });
 
   // Register cookie plugin (required for flowId + refresh token cookies).
-  void app.register(fastifyCookie);
+  await app.register(fastifyCookie);
+
+  // Brute-force guard: only /api/auth/* is limited (token, login, register, recovery).
+  await app.register(rateLimit, {
+    max: 10,
+    timeWindow: "1 minute",
+    allowList: (req) => !req.url.startsWith("/api/auth/"),
+  });
 
   // Default deps bind to the real DynamoDB repo; tests inject fakes.
   let ddb: DynamoDBDocumentClient | undefined;

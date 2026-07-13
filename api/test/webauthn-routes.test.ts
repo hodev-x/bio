@@ -154,7 +154,7 @@ const authConfig = {
 
 // ── Helper: build an app with all fake deps for a fresh store ─────────────────
 
-function buildTestApp(store: ReturnType<typeof makeFakeStore>, overrides: object = {}) {
+async function buildTestApp(store: ReturnType<typeof makeFakeStore>, overrides: object = {}) {
   return buildApp({
     ...authConfig,
     ...store,
@@ -181,14 +181,14 @@ function extractCookie(headers: Record<string, string | string[]>, name: string)
 describe("POST /api/auth/register/options", () => {
   it("returns 401 without bootstrap token when no credentials exist", async () => {
     const store = makeFakeStore();
-    const app = buildTestApp(store);
+    const app = await buildTestApp(store);
     const res = await app.inject({ method: "POST", url: "/api/auth/register/options", payload: {} });
     expect(res.statusCode).toBe(401);
   });
 
   it("returns 401 with wrong bootstrap token", async () => {
     const store = makeFakeStore();
-    const app = buildTestApp(store);
+    const app = await buildTestApp(store);
     const res = await app.inject({
       method: "POST",
       url: "/api/auth/register/options",
@@ -199,7 +199,7 @@ describe("POST /api/auth/register/options", () => {
 
   it("returns registration options with correct bootstrap token (no creds)", async () => {
     const store = makeFakeStore();
-    const app = buildTestApp(store);
+    const app = await buildTestApp(store);
     const res = await app.inject({
       method: "POST",
       url: "/api/auth/register/options",
@@ -216,7 +216,7 @@ describe("POST /api/auth/register/options", () => {
     const store = makeFakeStore();
     // Pre-seed a passkey so count > 0.
     await store.saveCredential({ id: "existing", type: "passkey", publicKey: "pk", counter: 0 });
-    const app = buildTestApp(store);
+    const app = await buildTestApp(store);
 
     // No token → 401
     const noAuth = await app.inject({
@@ -241,7 +241,7 @@ describe("POST /api/auth/register/options", () => {
 describe("POST /api/auth/register/verify", () => {
   it("stores credential and returns recovery codes (once)", async () => {
     const store = makeFakeStore();
-    const app = buildTestApp(store);
+    const app = await buildTestApp(store);
 
     // Step 1: get options to populate the challenge in the store.
     const optRes = await app.inject({
@@ -278,14 +278,14 @@ describe("POST /api/auth/register/verify", () => {
 
   it("returns 401 when flowId cookie is missing", async () => {
     const store = makeFakeStore();
-    const app = buildTestApp(store);
+    const app = await buildTestApp(store);
     const res = await app.inject({ method: "POST", url: "/api/auth/register/verify", payload: {} });
     expect(res.statusCode).toBe(401);
   });
 
   it("returns 401 when challenge does not exist (already consumed)", async () => {
     const store = makeFakeStore();
-    const app = buildTestApp(store);
+    const app = await buildTestApp(store);
     const res = await app.inject({
       method: "POST",
       url: "/api/auth/register/verify",
@@ -297,7 +297,7 @@ describe("POST /api/auth/register/verify", () => {
 
   it("returns 400 when verification fails", async () => {
     const store = makeFakeStore();
-    const app = buildTestApp(store, {
+    const app = await buildTestApp(store, {
       doVerifyRegistration: fakeVerifyRegistrationFail,
     });
 
@@ -317,7 +317,7 @@ describe("POST /api/auth/register/verify", () => {
 describe("POST /api/auth/login/options", () => {
   it("returns authentication options and sets a flowId cookie", async () => {
     const store = makeFakeStore();
-    const app = buildTestApp(store);
+    const app = await buildTestApp(store);
     const res = await app.inject({ method: "POST", url: "/api/auth/login/options" });
     expect(res.statusCode).toBe(200);
     expect(res.json().challenge).toBe(FAKE_CHALLENGE);
@@ -336,7 +336,7 @@ describe("POST /api/auth/login/verify", () => {
       publicKey: FAKE_PUBLIC_KEY_HEX,
       counter: 0,
     });
-    const app = buildTestApp(store);
+    const app = await buildTestApp(store);
 
     // Get login options to create a challenge.
     const optRes = await app.inject({ method: "POST", url: "/api/auth/login/options" });
@@ -366,7 +366,7 @@ describe("POST /api/auth/login/verify", () => {
 
   it("returns 401 when flowId cookie is missing", async () => {
     const store = makeFakeStore();
-    const app = buildTestApp(store);
+    const app = await buildTestApp(store);
     const res = await app.inject({
       method: "POST",
       url: "/api/auth/login/verify",
@@ -378,7 +378,7 @@ describe("POST /api/auth/login/verify", () => {
   it("returns 401 when credential is not found", async () => {
     const store = makeFakeStore();
     await store.saveChallenge("flow-x", FAKE_CHALLENGE, 60);
-    const app = buildTestApp(store);
+    const app = await buildTestApp(store);
     const res = await app.inject({
       method: "POST",
       url: "/api/auth/login/verify",
@@ -397,7 +397,7 @@ describe("POST /api/auth/login/verify", () => {
       counter: 0,
     });
     await store.saveChallenge("flow-y", FAKE_CHALLENGE, 60);
-    const app = buildTestApp(store, {
+    const app = await buildTestApp(store, {
       doVerifyAuthentication: fakeVerifyAuthenticationFail,
     });
     const res = await app.inject({
@@ -430,7 +430,7 @@ describe("POST /api/auth/login/verify", () => {
         rpID: "localhost",
       },
     });
-    const app = buildTestApp(store, {
+    const app = await buildTestApp(store, {
       doVerifyAuthentication: fakeVerifyAuthenticationNoUV,
     });
     const res = await app.inject({
@@ -447,7 +447,7 @@ describe("POST /api/auth/login/verify", () => {
 describe("POST /api/auth/refresh", () => {
   it("issues a new access token from a valid refresh cookie", async () => {
     const store = makeFakeStore();
-    const app = buildTestApp(store);
+    const app = await buildTestApp(store);
 
     const refreshToken = await signRefreshToken(KEY, { sub: "admin" });
     const res = await app.inject({
@@ -462,14 +462,14 @@ describe("POST /api/auth/refresh", () => {
 
   it("returns 401 when no refresh cookie is present", async () => {
     const store = makeFakeStore();
-    const app = buildTestApp(store);
+    const app = await buildTestApp(store);
     const res = await app.inject({ method: "POST", url: "/api/auth/refresh" });
     expect(res.statusCode).toBe(401);
   });
 
   it("returns 401 for an invalid refresh token", async () => {
     const store = makeFakeStore();
-    const app = buildTestApp(store);
+    const app = await buildTestApp(store);
     const res = await app.inject({
       method: "POST",
       url: "/api/auth/refresh",
@@ -480,7 +480,7 @@ describe("POST /api/auth/refresh", () => {
 
   it("returns 401 when an access token is submitted instead of a refresh token (typ check)", async () => {
     const store = makeFakeStore();
-    const app = buildTestApp(store);
+    const app = await buildTestApp(store);
     // Access token has typ="access" — must NOT be accepted by /refresh.
     const accessToken = await signAccessToken(KEY, { sub: "admin" });
     const res = await app.inject({
@@ -495,7 +495,7 @@ describe("POST /api/auth/refresh", () => {
 describe("POST /api/auth/logout", () => {
   it("returns ok and clears the refresh cookie", async () => {
     const store = makeFakeStore();
-    const app = buildTestApp(store);
+    const app = await buildTestApp(store);
     const res = await app.inject({ method: "POST", url: "/api/auth/logout" });
     expect(res.statusCode).toBe(200);
     expect(res.json().ok).toBe(true);
@@ -512,7 +512,7 @@ describe("POST /api/auth/recovery", () => {
     const store = makeFakeStore();
     // Store a raw code as the "hash" (fake consumeRecoveryCode compares directly).
     await store.saveRecoveryCodes(["valid-recovery-code"]);
-    const app = buildTestApp(store);
+    const app = await buildTestApp(store);
 
     const res = await app.inject({
       method: "POST",
@@ -526,7 +526,7 @@ describe("POST /api/auth/recovery", () => {
 
   it("returns 401 for an invalid recovery code", async () => {
     const store = makeFakeStore();
-    const app = buildTestApp(store);
+    const app = await buildTestApp(store);
     const res = await app.inject({
       method: "POST",
       url: "/api/auth/recovery",
@@ -537,7 +537,7 @@ describe("POST /api/auth/recovery", () => {
 
   it("returns 401 when code is missing from body", async () => {
     const store = makeFakeStore();
-    const app = buildTestApp(store);
+    const app = await buildTestApp(store);
     const res = await app.inject({
       method: "POST",
       url: "/api/auth/recovery",
@@ -549,7 +549,7 @@ describe("POST /api/auth/recovery", () => {
   it("rejects already-used recovery codes (single-use)", async () => {
     const store = makeFakeStore();
     await store.saveRecoveryCodes(["one-time-code"]);
-    const app = buildTestApp(store);
+    const app = await buildTestApp(store);
 
     // First use: success.
     const first = await app.inject({
