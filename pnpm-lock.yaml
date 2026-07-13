@@ -19,9 +19,15 @@ importers:
       '@aws-sdk/lib-dynamodb':
         specifier: ^3.660.0
         version: 3.1073.0(@aws-sdk/client-dynamodb@3.1073.0)
+      '@bio/shared':
+        specifier: workspace:*
+        version: link:../packages/shared
       '@fastify/cookie':
         specifier: ^11.0.2
         version: 11.0.2
+      '@fastify/rate-limit':
+        specifier: ^10.0.0
+        version: 10.0.0
       '@simplewebauthn/server':
         specifier: ^11.0.0
         version: 11.0.0
@@ -69,6 +75,22 @@ importers:
       tsx:
         specifier: ^4.19.0
         version: 4.22.4
+      typescript:
+        specifier: ^5.6.0
+        version: 5.9.3
+      vitest:
+        specifier: ^2.1.0
+        version: 2.1.9(@types/node@22.20.0)
+
+  packages/shared:
+    dependencies:
+      zod:
+        specifier: ^3.23.0
+        version: 3.25.76
+    devDependencies:
+      '@types/node':
+        specifier: ^22.0.0
+        version: 22.20.0
       typescript:
         specifier: ^5.6.0
         version: 5.9.3
@@ -981,6 +1003,9 @@ packages:
   '@fastify/proxy-addr@5.1.0':
     resolution: {integrity: sha512-INS+6gh91cLUjB+PVHfu1UqcB76Sqtpyp7bnL+FYojhjygvOPA9ctiD/JDKsyD9Xgu4hUhCSJBPig/w7duNajw==}
 
+  '@fastify/rate-limit@10.0.0':
+    resolution: {integrity: sha512-tgWgUw/Zvs0GfV5odyr4g/CMiNamWYi0eMrmidPTIJyr1Ea3W42YqvM/jpbVjuKC6HONRVUq+IZbAy+GtixVGg==}
+
   '@hexagon/base64@1.1.28':
     resolution: {integrity: sha512-lhqDEAvWixy3bZ+UOYbPwUbBkwBq5C1LAJ/xPC8Oi+lL54oyakv/npbA0aU2hgCsx/1NUd4IBvV03+aUBWxerw==}
 
@@ -1002,6 +1027,10 @@ packages:
 
   '@levischuck/tiny-cbor@0.2.11':
     resolution: {integrity: sha512-llBRm4dT4Z89aRsm6u2oEZ8tfwL/2l6BwpZ7JcyieouniDECM5AqNgr/y08zalEIvW3RSK4upYyybDcmjXqAow==}
+
+  '@lukeed/ms@2.0.2':
+    resolution: {integrity: sha512-9I2Zn6+NJLfaGoz9jN3lpwDgAYvfGeNYdbAIjJOqzs4Tpc+VU3Jqq4IofSUBKajiDS8k9fZIg18/z13mpk1bsA==}
+    engines: {node: '>=8'}
 
   '@nodable/entities@2.2.0':
     resolution: {integrity: sha512-9uGyhaQavEUMC8AIddIjau4NsnsXhou+j5sBAGojCM1oxmQpVKTWR/9JxABD6UAv12vpIms55fPZKFQEhG6uBg==}
@@ -1913,6 +1942,9 @@ packages:
   yallist@3.1.1:
     resolution: {integrity: sha512-a4UGQaWPH59mOXUYnAG2ewncQS4i4F43Tv3JoAM+s2VDAmS9NsK8GpDMLrCHPksFT7h3K6TOoUNn2pb7RoXx4g==}
 
+  zod@3.25.76:
+    resolution: {integrity: sha512-gzUt/qt81nXsFGKIFcC3YnfEAx5NkunCfnDlvuBSSFS02bcXu4Lmea0AFIUwbLWxWPx3d9p8S5QoaujKcNQxcQ==}
+
 snapshots:
 
   '@aws-cdk/asset-awscli-v1@2.2.282': {}
@@ -2718,6 +2750,12 @@ snapshots:
       '@fastify/forwarded': 3.0.1
       ipaddr.js: 2.4.0
 
+  '@fastify/rate-limit@10.0.0':
+    dependencies:
+      '@lukeed/ms': 2.0.2
+      fastify-plugin: 5.1.0
+      toad-cache: 3.7.1
+
   '@hexagon/base64@1.1.28': {}
 
   '@jridgewell/gen-mapping@0.3.13':
@@ -2740,6 +2778,8 @@ snapshots:
       '@jridgewell/sourcemap-codec': 1.5.5
 
   '@levischuck/tiny-cbor@0.2.11': {}
+
+  '@lukeed/ms@2.0.2': {}
 
   '@nodable/entities@2.2.0': {}
 
@@ -3667,3 +3707,5 @@ snapshots:
   xml-naming@0.1.0: {}
 
   yallist@3.1.1: {}
+
+  zod@3.25.76: {}

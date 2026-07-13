@@ -1,8 +1,13 @@
-import Fastify, { type FastifyInstance } from "fastify";
+import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest } from "fastify";
 import fastifyCookie from "@fastify/cookie";
+import rateLimit from "@fastify/rate-limit";
 import { makeDocClient } from "./data/client.js";
 import * as repo from "./data/content.js";
 import * as authRepo from "./data/auth.js";
+import * as writeRepo from "./data/content-write.js";
+import {
+  SCHEMA_BY_TYPE, KEY_BY_TYPE, ENTITY_TYPES, VisiblePatchSchema, type EntityType,
+} from "@bio/shared";
 import type { DynamoDBDocumentClient } from "@aws-sdk/lib-dynamodb";
 import { loadAuthConfig } from "./auth/config.js";
 import { verifySecret } from "./auth/hash.js";
@@ -26,6 +31,16 @@ import { randomUUID, timingSafeEqual } from "node:crypto";
 function safeEqual(a: string, b: string): boolean {
   const ab = Buffer.from(a); const bb = Buffer.from(b);
   return ab.length === bb.length && timingSafeEqual(ab, bb);
+}
+
+// Rate-limit key: rightmost X-Forwarded-For entry — appended by the closest
+// infrastructure hop (API GW / CloudFront), unlike the leftmost, which the
+// caller controls and could rotate to dodge the limiter.
+function clientKey(req: FastifyRequest): string {
+  const xff = req.headers["x-forwarded-for"];
+  const raw = Array.isArray(xff) ? xff[xff.length - 1] : xff;
+  const rightmost = raw?.split(",").at(-1)?.trim();
+  return rightmost || req.ip;
 }
 
 type SiteContent = Awaited<ReturnType<typeof repo.getSiteContent>>;
@@ -62,13 +77,26 @@ export interface AppDeps {
   doVerifyRegistration?: VerifyRegistrationFn;
   doGenerateAuthentication?: GenerateAuthenticationFn;
   doVerifyAuthentication?: VerifyAuthenticationFn;
+  // Content write layer — injectable so tests don't touch DynamoDB.
+  putEntity?: (type: EntityType, item: Record<string, unknown>) => Promise<void>;
+  deleteEntity?: (type: EntityType, key: string) => Promise<void>;
+  patchVisible?: (type: EntityType, key: string, visible: boolean) => Promise<boolean>;
+  createPost?: (item: Record<string, unknown>) => Promise<boolean>;
 }
 
-export function buildApp(deps: AppDeps = {}): FastifyInstance {
-  const app = Fastify({ logger: false });
+export async function buildApp(deps: AppDeps = {}): Promise<FastifyInstance> {
+  const app = Fastify({ logger: false, trustProxy: true });
 
   // Register cookie plugin (required for flowId + refresh token cookies).
-  void app.register(fastifyCookie);
+  await app.register(fastifyCookie);
+
+  // Brute-force guard: only /api/auth/* is limited (token, login, register, recovery).
+  await app.register(rateLimit, {
+    max: 10,
+    timeWindow: "1 minute",
+    allowList: (req) => !req.url.startsWith("/api/auth/"),
+    keyGenerator: clientKey,
+  });
 
   // Default deps bind to the real DynamoDB repo; tests inject fakes.
   let ddb: DynamoDBDocumentClient | undefined;
@@ -100,6 +128,12 @@ export function buildApp(deps: AppDeps = {}): FastifyInstance {
   const doVerifyRegistration = deps.doVerifyRegistration ?? verifyRegistration;
   const doGenerateAuthentication = deps.doGenerateAuthentication ?? generateAuthentication;
   const doVerifyAuthentication = deps.doVerifyAuthentication ?? verifyAuthentication;
+
+  // Content write layer deps.
+  const createPost = deps.createPost ?? ((item) => writeRepo.createPost(client(), item));
+  const putEntity = deps.putEntity ?? ((type, item) => writeRepo.putEntity(client(), type, item));
+  const deleteEntity = deps.deleteEntity ?? ((type, key) => writeRepo.deleteEntity(client(), type, key));
+  const patchVisible = deps.patchVisible ?? ((type, key, v) => writeRepo.patchVisible(client(), type, key, v));
 
   // Auth context for middleware (reads signing key from config).
   const authCtx = { getKey: async () => (await getAuthConfig()).jwtSigningKey };
@@ -363,6 +397,65 @@ export function buildApp(deps: AppDeps = {}): FastifyInstance {
     const post = await getPost(req.params.slug);
     if (!post || post.visible === false) return reply.code(404).send({ error: "not found" });
     return post;
+  });
+
+  // ── Content write routes ─────────────────────────────────────────────────────
+
+  const badRequest = (reply: FastifyReply, issues: unknown) =>
+    reply.code(400).send({ error: "validation failed", issues });
+
+  app.put("/api/profile", { preHandler: requireAuth }, async (req, reply) => {
+    const parsed = SCHEMA_BY_TYPE.profile.safeParse({ ...(req.body as object ?? {}), id: "me" });
+    if (!parsed.success) return badRequest(reply, parsed.error.flatten().fieldErrors);
+    await putEntity("profile", parsed.data);
+    return parsed.data;
+  });
+
+  for (const type of ["experience", "education", "skills", "projects"] as const) {
+    const keyAttr = KEY_BY_TYPE[type];
+    app.put<{ Params: { key: string } }>(`/api/${type}/:key`, { preHandler: requireAuth }, async (req, reply) => {
+      // The URL is the source of truth for the key; a conflicting body key is overwritten.
+      const parsed = SCHEMA_BY_TYPE[type].safeParse({ ...(req.body as object ?? {}), [keyAttr]: req.params.key });
+      if (!parsed.success) return badRequest(reply, parsed.error.flatten().fieldErrors);
+      await putEntity(type, parsed.data as Record<string, unknown>);
+      return parsed.data;
+    });
+    app.delete<{ Params: { key: string } }>(`/api/${type}/:key`, { preHandler: requireAuth }, async (req, reply) => {
+      await deleteEntity(type, req.params.key);
+      return reply.code(204).send();
+    });
+  }
+
+  app.patch<{ Params: { type: string; key: string } }>("/api/:type/:key", { preHandler: requireAuth }, async (req, reply) => {
+    if (!(ENTITY_TYPES as readonly string[]).includes(req.params.type)) {
+      return reply.code(404).send({ error: "unknown type" });
+    }
+    const type = req.params.type as EntityType;
+    const parsed = VisiblePatchSchema.safeParse(req.body);
+    if (!parsed.success) return badRequest(reply, parsed.error.flatten().fieldErrors);
+    const found = await patchVisible(type, req.params.key, parsed.data.visible);
+    if (!found) return reply.code(404).send({ error: "not found" });
+    return { [KEY_BY_TYPE[type]]: req.params.key, visible: parsed.data.visible };
+  });
+
+  app.post("/api/posts", { preHandler: requireAuth }, async (req, reply) => {
+    const parsed = SCHEMA_BY_TYPE.posts.safeParse(req.body ?? {});
+    if (!parsed.success) return badRequest(reply, parsed.error.flatten().fieldErrors);
+    const created = await createPost(parsed.data as Record<string, unknown>);
+    if (!created) return reply.code(409).send({ error: "slug already exists" });
+    return reply.code(201).send(parsed.data);
+  });
+
+  app.put<{ Params: { slug: string } }>("/api/posts/:slug", { preHandler: requireAuth }, async (req, reply) => {
+    const parsed = SCHEMA_BY_TYPE.posts.safeParse({ ...(req.body as object ?? {}), slug: req.params.slug });
+    if (!parsed.success) return badRequest(reply, parsed.error.flatten().fieldErrors);
+    await putEntity("posts", parsed.data as Record<string, unknown>);
+    return reply.code(200).send(parsed.data);
+  });
+
+  app.delete<{ Params: { slug: string } }>("/api/posts/:slug", { preHandler: requireAuth }, async (req, reply) => {
+    await deleteEntity("posts", req.params.slug);
+    return reply.code(204).send();
   });
 
   return app;

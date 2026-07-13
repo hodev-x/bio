@@ -2,5 +2,6 @@ packages:
   - "web"
   - "api"
   - "infra"
+  - "packages/*"
 allowBuilds:
   esbuild: true
