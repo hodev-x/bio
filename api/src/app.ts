@@ -1,4 +1,4 @@
-import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest } from "fastify";
+import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest, type FastifyError } from "fastify";
 import fastifyCookie from "@fastify/cookie";
 import rateLimit from "@fastify/rate-limit";
 import { makeDocClient } from "./data/client.js";
@@ -6,7 +6,7 @@ import * as repo from "./data/content.js";
 import * as authRepo from "./data/auth.js";
 import * as writeRepo from "./data/content-write.js";
 import {
-  SCHEMA_BY_TYPE, KEY_BY_TYPE, ENTITY_TYPES, VisiblePatchSchema, type EntityType,
+  SCHEMA_BY_TYPE, KEY_BY_TYPE, ENTITY_TYPES, VisiblePatchSchema, PostPutSchema, type EntityType,
 } from "@bio/shared";
 import type { DynamoDBDocumentClient } from "@aws-sdk/lib-dynamodb";
 import { loadAuthConfig } from "./auth/config.js";
@@ -70,7 +70,7 @@ export type VerifyAuthenticationFn = (opts: VerifyAuthenticationResponseOpts) =>
 
 export interface AppDeps {
   getSiteContent?: (opts?: { includeHidden?: boolean }) => Promise<SiteContent>;
-  listPosts?: (opts?: { limit?: number }) => Promise<PostPage>;
+  listPosts?: (opts?: { limit?: number; includeHidden?: boolean }) => Promise<PostPage>;
   getPost?: (slug: string) => Promise<repo.Item | null>;
   getAuthConfig?: () => Promise<AuthConfigShape>;
   verifyMcpSecret?: (secret: string) => Promise<boolean>;
@@ -106,6 +106,14 @@ export async function buildApp(deps: AppDeps = {}): Promise<FastifyInstance> {
     timeWindow: "1 minute",
     allowList: (req) => !req.url.startsWith("/api/auth/"),
     keyGenerator: clientKey,
+  });
+
+  // Never leak internal error detail (table names, ARNs, stack) to callers.
+  app.setErrorHandler((err: FastifyError, _req, reply) => {
+    const status = err.statusCode ?? 500;
+    if (status < 500) return reply.code(status).send({ error: err.message });
+    console.error(err);
+    return reply.code(500).send({ error: "internal error" });
   });
 
   // Default deps bind to the real DynamoDB repo; tests inject fakes.
@@ -397,15 +405,20 @@ export async function buildApp(deps: AppDeps = {}): Promise<FastifyInstance> {
   });
 
   app.get("/api/posts", async (req) => {
-    const raw = (req.query as { limit?: string }).limit;
-    const parsed = Number.parseInt(raw ?? "", 10);
+    const q = req.query as { limit?: string; includeHidden?: string };
+    const parsed = Number.parseInt(q.limit ?? "", 10);
     const limit = Number.isFinite(parsed) ? Math.min(100, Math.max(1, parsed)) : 10;
-    return listPosts({ limit });
+    // includeHidden is ONLY honored when a valid access token is present.
+    const sub = q.includeHidden === "true" ? await principalFrom(req, authCtx) : null;
+    return listPosts({ limit, includeHidden: !!sub });
   });
 
   app.get<{ Params: { slug: string } }>("/api/posts/:slug", async (req, reply) => {
     const post = await getPost(req.params.slug);
-    if (!post || post.visible === false) return reply.code(404).send({ error: "not found" });
+    if (!post) return reply.code(404).send({ error: "not found" });
+    if (post.visible === false && !(await principalFrom(req, authCtx))) {
+      return reply.code(404).send({ error: "not found" });
+    }
     return post;
   });
 
@@ -457,7 +470,7 @@ export async function buildApp(deps: AppDeps = {}): Promise<FastifyInstance> {
   });
 
   app.put<{ Params: { slug: string } }>("/api/posts/:slug", { preHandler: requireAuth }, async (req, reply) => {
-    const parsed = SCHEMA_BY_TYPE.posts.safeParse({ ...(req.body as object ?? {}), slug: req.params.slug });
+    const parsed = PostPutSchema.safeParse({ ...(req.body as object ?? {}), slug: req.params.slug });
     if (!parsed.success) return badRequest(reply, parsed.error.flatten().fieldErrors);
     await putEntity("posts", parsed.data as Record<string, unknown>);
     return reply.code(200).send(parsed.data);

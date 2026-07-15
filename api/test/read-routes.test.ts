@@ -1,11 +1,18 @@
 import { describe, it, expect } from "vitest";
 import { buildApp } from "../src/app.js";
+import { signAccessToken } from "../src/auth/jwt.js";
 
 const deps = {
   getSiteContent: async () => ({ profile: { name: "Daniel" }, experience: [], education: [], skills: [], projects: [] }),
   listPosts: async () => ({ items: [{ slug: "hello", title: "Hello" }], cursor: null }),
   getPost: async (slug: string) => (slug === "hello" ? { slug, title: "Hello" } : null),
 };
+
+const KEY = "test-signing-key-at-least-32-bytes-long-xxxxxx";
+const authDeps = {
+  getAuthConfig: async () => ({ jwtSigningKey: KEY, mcpClientSecretHash: "salt:hash", passkeyBootstrapToken: "boot" }),
+};
+const bearer = async () => ({ authorization: `Bearer ${await signAccessToken(KEY, { sub: "admin" })}` });
 
 describe("read routes", () => {
   it("GET /api/content returns aggregated content", async () => {
@@ -53,5 +60,23 @@ describe("read routes", () => {
     ).inject({ method: "GET", url: "/api/content" });
     expect(res.statusCode).toBe(200);
     expect(calledWith).toBeUndefined(); // route calls with no includeHidden on the public path
+  });
+
+  it("GET /api/posts honors includeHidden only with a valid token", async () => {
+    let seen: unknown;
+    const app = await buildApp({
+      ...deps, ...authDeps,
+      listPosts: async (opts?: { limit?: number; includeHidden?: boolean }) => { seen = opts; return { items: [], cursor: null }; },
+    });
+    await app.inject({ method: "GET", url: "/api/posts?includeHidden=true" });
+    expect((seen as { includeHidden?: boolean }).includeHidden).toBeFalsy();
+    await app.inject({ method: "GET", url: "/api/posts?includeHidden=true", headers: await bearer() });
+    expect((seen as { includeHidden?: boolean }).includeHidden).toBe(true);
+  });
+
+  it("GET /api/posts/:slug returns a hidden post only with a valid token", async () => {
+    const app = await buildApp({ ...deps, ...authDeps, getPost: async () => ({ slug: "h", title: "H", visible: false }) });
+    expect((await app.inject({ method: "GET", url: "/api/posts/h" })).statusCode).toBe(404);
+    expect((await app.inject({ method: "GET", url: "/api/posts/h", headers: await bearer() })).statusCode).toBe(200);
   });
 });
