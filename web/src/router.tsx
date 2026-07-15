@@ -7,9 +7,9 @@ import { Dashboard } from "./pages/admin/Dashboard";
 import { ProfilePage } from "./pages/admin/ProfilePage";
 import { EntityListPage } from "./pages/admin/EntityListPage";
 import { experienceConfig, educationConfig, skillsConfig, projectsConfig } from "./pages/admin/entityConfigs";
+import { PostsPage } from "./pages/admin/PostsPage";
+import { PostEditorPage } from "./pages/admin/PostEditorPage";
 import { RequireAuth } from "./components/RequireAuth";
-
-const Todo = ({ name }: { name: string }) => <p>{name} — coming in a later task</p>;
 
 export function AppRoutes() {
   return (
@@ -24,9 +24,9 @@ export function AppRoutes() {
         <Route path="education" element={<EntityListPage config={educationConfig} />} />
         <Route path="skills" element={<EntityListPage config={skillsConfig} />} />
         <Route path="projects" element={<EntityListPage config={projectsConfig} />} />
-        <Route path="posts" element={<Todo name="Posts" />} />
-        <Route path="posts/new" element={<Todo name="New post" />} />
-        <Route path="posts/:slug" element={<Todo name="Edit post" />} />
+        <Route path="posts" element={<PostsPage />} />
+        <Route path="posts/new" element={<PostEditorPage mode="create" />} />
+        <Route path="posts/:slug" element={<PostEditorPage mode="edit" />} />
       </Route>
     </Routes>
   );
