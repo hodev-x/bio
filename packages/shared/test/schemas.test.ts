@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   ProfileSchema, ExperienceSchema, SkillsGroupSchema, ProjectSchema, PostSchema,
   VisiblePatchSchema, ENTITY_TYPES, SCHEMA_BY_TYPE, KEY_BY_TYPE,
+  EducationSchema, PostPutSchema,
 } from "../src/index.js";
 
 describe("entity schemas", () => {
@@ -49,5 +50,25 @@ describe("entity schemas", () => {
       expect(SCHEMA_BY_TYPE[t]).toBeDefined();
       expect(["id", "category", "slug"]).toContain(KEY_BY_TYPE[t]);
     }
+  });
+
+  it("education: validates the full shape", () => {
+    const e = EducationSchema.parse({ id: "mit", institution: "MIT", degree: "BSc", startDate: "2018" });
+    expect(e.visible).toBe(true);
+    expect(EducationSchema.safeParse({ id: "mit", degree: "BSc", startDate: "2018" }).success).toBe(false);
+  });
+
+  it("object/array defaults are per-parse (no shared references)", () => {
+    const a = ProfileSchema.parse({ name: "D", tagline: "t" });
+    const b = ProfileSchema.parse({ name: "D", tagline: "t" });
+    expect(a.socials).not.toBe(b.socials);
+    const p1 = PostSchema.parse({ slug: "a", title: "t", body: "b" });
+    const p2 = PostSchema.parse({ slug: "b", title: "t", body: "b" });
+    expect(p1.tags).not.toBe(p2.tags);
+  });
+
+  it("PostPutSchema requires publishedAt (full-replace PUT must not reset it)", () => {
+    expect(PostPutSchema.safeParse({ slug: "a", title: "t", body: "b" }).success).toBe(false);
+    expect(PostPutSchema.safeParse({ slug: "a", title: "t", body: "b", publishedAt: "2026-07-14T00:00:00.000Z" }).success).toBe(true);
   });
 });
