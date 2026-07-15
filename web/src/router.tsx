@@ -4,6 +4,7 @@ import { AdminLayout } from "./pages/admin/AdminLayout";
 import { LoginPage } from "./pages/admin/LoginPage";
 import { RegisterPage } from "./pages/admin/RegisterPage";
 import { Dashboard } from "./pages/admin/Dashboard";
+import { ProfilePage } from "./pages/admin/ProfilePage";
 import { RequireAuth } from "./components/RequireAuth";
 
 const Todo = ({ name }: { name: string }) => <p>{name} — coming in a later task</p>;
@@ -16,7 +17,7 @@ export function AppRoutes() {
       <Route path="/admin/register" element={<RegisterPage />} />
       <Route path="/admin" element={<RequireAuth><AdminLayout /></RequireAuth>}>
         <Route index element={<Dashboard />} />
-        <Route path="profile" element={<Todo name="Profile" />} />
+        <Route path="profile" element={<ProfilePage />} />
         <Route path="experience" element={<Todo name="Experience" />} />
         <Route path="education" element={<Todo name="Education" />} />
         <Route path="skills" element={<Todo name="Skills" />} />
