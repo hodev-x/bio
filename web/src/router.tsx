@@ -1,6 +1,7 @@
 import { Routes, Route } from "react-router";
 import { Home } from "./pages/Home";
 import { AdminLayout } from "./pages/admin/AdminLayout";
+import { RequireAuth } from "./components/RequireAuth";
 
 const Todo = ({ name }: { name: string }) => <p>{name} — coming in a later task</p>;
 
@@ -10,7 +11,7 @@ export function AppRoutes() {
       <Route path="/" element={<Home />} />
       <Route path="/admin/login" element={<Todo name="Login" />} />
       <Route path="/admin/register" element={<Todo name="Register" />} />
-      <Route path="/admin" element={<AdminLayout />}>
+      <Route path="/admin" element={<RequireAuth><AdminLayout /></RequireAuth>}>
         <Route index element={<Todo name="Dashboard" />} />
         <Route path="profile" element={<Todo name="Profile" />} />
         <Route path="experience" element={<Todo name="Experience" />} />
