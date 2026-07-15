@@ -12,7 +12,7 @@ export const ProfileSchema = z.object({
   name: z.string().min(1),
   tagline: z.string().min(1),
   about: z.string().optional(),
-  socials: z.record(z.string(), z.string().url()).default({}),
+  socials: z.record(z.string(), z.string().url()).default(() => ({})),
   visible: z.boolean().default(true),
 }).strict();
 
@@ -22,7 +22,7 @@ export const ExperienceSchema = z.object({
   company: z.string().min(1),
   startDate: isoDate,
   endDate: isoDate.optional(),
-  highlights: z.array(z.string().min(1)).default([]),
+  highlights: z.array(z.string().min(1)).default(() => []),
   tech,
   visible: z.boolean().default(true),
 }).strict();
@@ -38,7 +38,7 @@ export const EducationSchema = z.object({
 
 export const SkillsGroupSchema = z.object({
   category: slug,
-  items: z.array(z.string().min(1)).default([]),
+  items: z.array(z.string().min(1)).default(() => []),
   visible: z.boolean().default(true),
 }).strict();
 
@@ -57,10 +57,14 @@ export const PostSchema = z.object({
   slug,
   title: z.string().min(1),
   body: z.string().min(1),
-  tags: z.array(z.string().min(1)).default([]),
+  tags: z.array(z.string().min(1)).default(() => []),
   publishedAt: z.string().datetime().default(() => new Date().toISOString()),
   visible: z.boolean().default(true),
 }).strict();
+
+// PUT is full-replace: requiring publishedAt prevents an innocent update from
+// resetting it to "now" and reordering the public blog (gsi-by-date sort key).
+export const PostPutSchema = PostSchema.extend({ publishedAt: z.string().datetime() });
 
 export const VisiblePatchSchema = z.object({ visible: z.boolean() }).strict();
 

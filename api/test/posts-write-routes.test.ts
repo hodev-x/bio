@@ -48,7 +48,7 @@ describe("posts write routes", () => {
     const app = await buildApp(deps);
     const res = await app.inject({
       method: "PUT", url: "/api/posts/hello-world", headers: await bearer(),
-      payload: { slug: "spoofed", title: "Hello v2", body: "updated" },
+      payload: { slug: "spoofed", title: "Hello v2", body: "updated", publishedAt: "2024-01-01T00:00:00.000Z" },
     });
     expect(res.statusCode).toBe(200);
     expect(res.json().slug).toBe("hello-world");
@@ -62,5 +62,14 @@ describe("posts write routes", () => {
     const res = await app.inject({ method: "DELETE", url: "/api/posts/hello-world", headers: await bearer() });
     expect(res.statusCode).toBe(204);
     expect(dels[0]).toEqual(["posts", "hello-world"]);
+  });
+
+  it("PUT /api/posts/:slug without publishedAt is a 400 (no silent reset)", async () => {
+    const deps: AppDeps = { ...baseDeps, putEntity: async () => {} };
+    const res = await (await buildApp(deps)).inject({
+      method: "PUT", url: "/api/posts/hello-world", headers: await bearer(),
+      payload: { slug: "hello-world", title: "t", body: "b" },
+    });
+    expect(res.statusCode).toBe(400);
   });
 });
