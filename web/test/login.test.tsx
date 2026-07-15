@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Routes, Route } from "react-router";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { AuthProvider } from "../src/hooks/useAuth";
 import { LoginPage } from "../src/pages/admin/LoginPage";
 import { setAccessToken } from "../src/api/client";
@@ -11,14 +12,16 @@ const json = (status: number, body: unknown) =>
   new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
 
 const ui = (authenticate?: (o: unknown) => Promise<unknown>) => (
-  <AuthProvider>
-    <MemoryRouter initialEntries={["/admin/login"]}>
-      <Routes>
-        <Route path="/admin/login" element={<LoginPage authenticate={authenticate} />} />
-        <Route path="/admin" element={<p>dashboard</p>} />
-      </Routes>
-    </MemoryRouter>
-  </AuthProvider>
+  <QueryClientProvider client={new QueryClient()}>
+    <AuthProvider>
+      <MemoryRouter initialEntries={["/admin/login"]}>
+        <Routes>
+          <Route path="/admin/login" element={<LoginPage authenticate={authenticate} />} />
+          <Route path="/admin" element={<p>dashboard</p>} />
+        </Routes>
+      </MemoryRouter>
+    </AuthProvider>
+  </QueryClientProvider>
 );
 
 beforeEach(() => { setAccessToken(null); vi.restoreAllMocks(); });

@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { AppRoutes } from "../src/router";
 import { AuthProvider } from "../src/hooks/useAuth";
 import { setAccessToken } from "../src/api/client";
@@ -19,9 +20,11 @@ describe("router", () => {
   it("has an /admin/login route", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(json(401, {})); // mount refresh fails → anon
     render(
-      <AuthProvider>
-        <MemoryRouter initialEntries={["/admin/login"]}><AppRoutes /></MemoryRouter>
-      </AuthProvider>,
+      <QueryClientProvider client={new QueryClient()}>
+        <AuthProvider>
+          <MemoryRouter initialEntries={["/admin/login"]}><AppRoutes /></MemoryRouter>
+        </AuthProvider>
+      </QueryClientProvider>,
     );
     expect(await screen.findByText(/login/i)).toBeInTheDocument();
   });

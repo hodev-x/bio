@@ -33,15 +33,28 @@ async function toError(res: Response): Promise<ApiError> {
   return new ApiError(res.status, body.error ?? `request failed (${res.status})`, body.issues);
 }
 
-const subOf = (token: string): string =>
-  (JSON.parse(atob(token.split(".")[1])) as { sub: string }).sub;
+// JWTs use base64url (RFC 4648 §5), which swaps "+"/"/" for "-"/"_"; a bare
+// atob() call would choke on those characters, so translate back to
+// standard base64 before decoding.
+export const subOf = (token: string): string =>
+  (JSON.parse(atob(token.split(".")[1].replace(/-/g, "+").replace(/_/g, "/"))) as { sub: string }).sub;
+
+// Notifies the auth provider when a silent refresh terminally fails so the
+// UI can drop to anon and RequireAuth redirects to login.
+let authLostHandler: (() => void) | null = null;
+export const onAuthLost = (fn: (() => void) | null) => { authLostHandler = fn; };
 
 export async function refreshSession(): Promise<{ sub: string } | null> {
   const res = await fetch("/api/auth/refresh", { method: "POST", credentials: "same-origin" });
   if (!res.ok) return null;
   const { accessToken: token } = (await res.json()) as { accessToken: string };
-  setAccessToken(token);
-  return { sub: subOf(token) };
+  try {
+    const sub = subOf(token);
+    setAccessToken(token);
+    return { sub };
+  } catch {
+    return null;
+  }
 }
 
 export async function api<T = unknown>(path: string, opts: Opts = {}): Promise<T> {
@@ -50,6 +63,7 @@ export async function api<T = unknown>(path: string, opts: Opts = {}): Promise<T
     const refreshed = await refreshSession();
     if (!refreshed) {
       setAccessToken(null);
+      authLostHandler?.();
       throw await toError(res);
     }
     res = await rawFetch(path, opts);

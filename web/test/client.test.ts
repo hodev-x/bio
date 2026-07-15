@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { api, ApiError, setAccessToken, getAccessToken, refreshSession } from "../src/api/client";
+import { api, ApiError, setAccessToken, getAccessToken, refreshSession, subOf } from "../src/api/client";
 
 const jwt = (sub: string) => `x.${btoa(JSON.stringify({ sub, typ: "access" }))}.y`;
 const json = (status: number, body: unknown) =>
@@ -50,5 +50,13 @@ describe("api client", () => {
     expect(await refreshSession()).toEqual({ sub: "admin" });
     vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(json(401, {}));
     expect(await refreshSession()).toBeNull();
+  });
+
+  it("subOf decodes base64url payloads containing - and _ characters", () => {
+    // Standard-base64 encoding of {"sub":"sub->>>/??"} is
+    // "eyJzdWIiOiJzdWItPj4+Lz8/In0=", which contains both "+" and "/"; the
+    // base64url variant below swaps those for "-" and "_" respectively.
+    const token = "x.eyJzdWIiOiJzdWItPj4-Lz8_In0=.y";
+    expect(subOf(token)).toBe("sub->>>/??");
   });
 });
