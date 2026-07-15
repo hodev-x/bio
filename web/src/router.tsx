@@ -2,6 +2,7 @@ import { Routes, Route } from "react-router";
 import { Home } from "./pages/Home";
 import { AdminLayout } from "./pages/admin/AdminLayout";
 import { LoginPage } from "./pages/admin/LoginPage";
+import { RegisterPage } from "./pages/admin/RegisterPage";
 import { RequireAuth } from "./components/RequireAuth";
 
 const Todo = ({ name }: { name: string }) => <p>{name} — coming in a later task</p>;
@@ -11,7 +12,7 @@ export function AppRoutes() {
     <Routes>
       <Route path="/" element={<Home />} />
       <Route path="/admin/login" element={<LoginPage />} />
-      <Route path="/admin/register" element={<Todo name="Register" />} />
+      <Route path="/admin/register" element={<RegisterPage />} />
       <Route path="/admin" element={<RequireAuth><AdminLayout /></RequireAuth>}>
         <Route index element={<Todo name="Dashboard" />} />
         <Route path="profile" element={<Todo name="Profile" />} />
