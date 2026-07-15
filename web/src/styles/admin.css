@@ -1,0 +1,32 @@
+:root {
+  --bg: #ffffff; --fg: #1a1a1a; --muted: #667; --line: #ddd;
+  --accent: #0b62d6; --danger: #c0392b; --card: #f7f7f8;
+  color-scheme: light dark;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #111214; --fg: #e8e8ea; --muted: #99a; --line: #333; --accent: #5aa2ff; --danger: #ff6b5b; --card: #1a1c1f; }
+}
+body { margin: 0; background: var(--bg); color: var(--fg); font: 16px/1.5 system-ui, sans-serif; }
+a { color: var(--accent); }
+.admin-shell { display: grid; grid-template-columns: 180px 1fr; min-height: 100vh; }
+.admin-nav { display: flex; flex-direction: column; gap: .25rem; padding: 1rem; border-right: 1px solid var(--line); }
+.admin-nav a { text-decoration: none; padding: .35rem .6rem; border-radius: 6px; text-transform: capitalize; }
+.admin-nav a.active { background: var(--card); font-weight: 600; }
+.admin-shell main { padding: 1.5rem; max-width: 60rem; }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 1rem; margin-bottom: 1rem; }
+.btn { background: var(--accent); color: #fff; border: 0; border-radius: 6px; padding: .45rem .9rem; cursor: pointer; font-size: .95rem; }
+.btn:disabled { opacity: .5; cursor: default; }
+.btn-secondary { background: transparent; color: var(--fg); border: 1px solid var(--line); }
+.btn-danger { background: var(--danger); }
+.field { display: block; margin-bottom: .8rem; }
+.field span { display: block; font-size: .85rem; color: var(--muted); margin-bottom: .2rem; }
+.field input, .field textarea, .field select { width: 100%; box-sizing: border-box; padding: .45rem; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--fg); font: inherit; }
+.field-error { color: var(--danger); font-size: .85rem; margin: .2rem 0 0; }
+.badge { font-size: .75rem; padding: .1rem .5rem; border-radius: 999px; border: 1px solid var(--line); }
+.badge-hidden { background: var(--danger); color: #fff; border: 0; }
+.table { width: 100%; border-collapse: collapse; }
+.table td, .table th { text-align: left; padding: .5rem; border-bottom: 1px solid var(--line); }
+.split-pane { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; align-items: start; }
+.split-pane textarea { min-height: 24rem; resize: vertical; }
+.error-banner { background: var(--danger); color: #fff; padding: .6rem .9rem; border-radius: 6px; margin-bottom: 1rem; }
+@media (max-width: 800px) { .admin-shell { grid-template-columns: 1fr; } .admin-nav { flex-direction: row; flex-wrap: wrap; border-right: 0; border-bottom: 1px solid var(--line); } .split-pane { grid-template-columns: 1fr; } }

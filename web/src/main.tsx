@@ -1,11 +1,13 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
+import { BrowserRouter } from "react-router";
+import { AppRoutes } from "./router";
+import "./styles/admin.css";
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
-    <main style={{ fontFamily: "system-ui", padding: "4rem", textAlign: "center" }}>
-      <h1>Daniel Hodeta</h1>
-      <p>Coming soon.</p>
-    </main>
+    <BrowserRouter>
+      <AppRoutes />
+    </BrowserRouter>
   </StrictMode>,
 );
