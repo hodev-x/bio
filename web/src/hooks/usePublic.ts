@@ -6,7 +6,7 @@ export type { Item, SiteContent };
 export type PostPage = { items: Item[]; cursor: string | null };
 
 export const usePublicContent = () =>
-  useQuery({ queryKey: ["public", "content"], queryFn: () => api<SiteContent>("/api/content"), retry: false });
+  useQuery({ queryKey: ["public", "content"], queryFn: () => api<SiteContent>("/api/content") });
 
 export const usePublicPosts = (limit = 10) =>
   useInfiniteQuery({

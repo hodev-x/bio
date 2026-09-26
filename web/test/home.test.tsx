@@ -1,6 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router";
 import { ModeProvider } from "../src/mode/ModeContext";
@@ -15,7 +14,7 @@ const content = {
   projects: [{ id: "fluxor", title: "Fluxor", desc: "Cash-flow planning", status: "active", repo: "https://github.com/hodev-x/fluxor", visible: true }],
 };
 const posts = { items: [{ slug: "hello", title: "Hello", publishedAt: "2026-01-01T00:00:00.000Z" }], cursor: null };
-const ui = () => render(<QueryClientProvider client={new QueryClient()}><ModeProvider><MemoryRouter><Home /></MemoryRouter></ModeProvider></QueryClientProvider>);
+const ui = () => render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}><ModeProvider><MemoryRouter><Home /></MemoryRouter></ModeProvider></QueryClientProvider>);
 beforeEach(() => { vi.restoreAllMocks(); localStorage.clear(); });
 
 describe("Home", () => {
