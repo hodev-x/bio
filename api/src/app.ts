@@ -14,6 +14,7 @@ import { verifySecret } from "./auth/hash.js";
 import { hashSecret, generateRecoveryCodes } from "./auth/hash.js";
 import { signAccessToken, signRefreshToken, verifyToken } from "./auth/jwt.js";
 import { makeRequireAuth, principalFrom } from "./auth/middleware.js";
+import { registerOriginVerify } from "./origin-verify.js";
 import {
   generateRegistration,
   verifyRegistration,
@@ -92,6 +93,7 @@ export interface AppDeps {
   deleteEntity?: (type: EntityType, key: string) => Promise<void>;
   patchVisible?: (type: EntityType, key: string, visible: boolean) => Promise<boolean>;
   createPost?: (item: Record<string, unknown>) => Promise<boolean>;
+  originVerifySecret?: string;
 }
 
 export async function buildApp(deps: AppDeps = {}): Promise<FastifyInstance> {
@@ -99,6 +101,8 @@ export async function buildApp(deps: AppDeps = {}): Promise<FastifyInstance> {
 
   // Register cookie plugin (required for flowId + refresh token cookies).
   await app.register(fastifyCookie);
+
+  registerOriginVerify(app, "originVerifySecret" in deps ? deps.originVerifySecret : process.env.ORIGIN_VERIFY_SECRET);
 
   // Brute-force guard: only /api/auth/* is limited (token, login, register, recovery).
   await app.register(rateLimit, {
