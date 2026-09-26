@@ -79,4 +79,14 @@ describe("read routes", () => {
     expect((await app.inject({ method: "GET", url: "/api/posts/h" })).statusCode).toBe(404);
     expect((await app.inject({ method: "GET", url: "/api/posts/h", headers: await bearer() })).statusCode).toBe(200);
   });
+
+  it("GET /api/posts forwards cursor and 400s on a bad one", async () => {
+    let seen: unknown;
+    const app = await buildApp({ ...deps, listPosts: async (o) => { seen = o; return { items: [], cursor: null }; } });
+    await app.inject({ method: "GET", url: "/api/posts?limit=5&cursor=abc" });
+    expect(seen).toMatchObject({ limit: 5, cursor: "abc" });
+    const bad = await buildApp({ ...deps, listPosts: async () => { throw new Error("invalid cursor"); } });
+    const res = await bad.inject({ method: "GET", url: "/api/posts?cursor=%%%" });
+    expect(res.statusCode).toBe(400);
+  });
 });

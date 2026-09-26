@@ -55,4 +55,35 @@ describe("posts", () => {
     ddb.on(GetCommand, { TableName: "bio-posts", Key: { slug: "missing" } }).resolves({});
     expect(await getPost(ddb as unknown as DynamoDBDocumentClient, "missing")).toBeNull();
   });
+
+  it("returns a cursor pointing at the last returned item when more remain", async () => {
+    const client = ddb as unknown as DynamoDBDocumentClient;
+    ddb.on(QueryCommand).resolves({
+      Items: [
+        { slug: "c", type: "post", publishedAt: "2026-03-01T00:00:00.000Z", visible: true },
+        { slug: "b", type: "post", publishedAt: "2026-02-01T00:00:00.000Z", visible: true },
+        { slug: "a", type: "post", publishedAt: "2026-01-01T00:00:00.000Z", visible: true },
+      ],
+    });
+    const page = await listPosts(client, { limit: 2 });
+    expect(page.items.map((i) => i.slug)).toEqual(["c", "b"]);
+    expect(page.cursor).not.toBeNull();
+    const decoded = JSON.parse(Buffer.from(page.cursor!, "base64url").toString());
+    expect(decoded).toEqual({ slug: "b", type: "post", publishedAt: "2026-02-01T00:00:00.000Z" });
+  });
+
+  it("passes a cursor through as ExclusiveStartKey and returns null when the page is short", async () => {
+    const client = ddb as unknown as DynamoDBDocumentClient;
+    ddb.on(QueryCommand).resolves({ Items: [{ slug: "a", type: "post", publishedAt: "2026-01-01T00:00:00.000Z", visible: true }] });
+    const cursor = Buffer.from(JSON.stringify({ slug: "b", type: "post", publishedAt: "2026-02-01T00:00:00.000Z" })).toString("base64url");
+    const page = await listPosts(client, { limit: 2, cursor });
+    const input = ddb.commandCalls(QueryCommand)[0].args[0].input;
+    expect(input.ExclusiveStartKey).toEqual({ slug: "b", type: "post", publishedAt: "2026-02-01T00:00:00.000Z" });
+    expect(page.cursor).toBeNull();
+  });
+
+  it("rejects a malformed cursor", async () => {
+    const client = ddb as unknown as DynamoDBDocumentClient;
+    await expect(listPosts(client, { cursor: "%%%" })).rejects.toThrow(/invalid cursor/);
+  });
 });

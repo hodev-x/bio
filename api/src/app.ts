@@ -70,7 +70,7 @@ export type VerifyAuthenticationFn = (opts: VerifyAuthenticationResponseOpts) =>
 
 export interface AppDeps {
   getSiteContent?: (opts?: { includeHidden?: boolean }) => Promise<SiteContent>;
-  listPosts?: (opts?: { limit?: number; includeHidden?: boolean }) => Promise<PostPage>;
+  listPosts?: (opts?: { limit?: number; includeHidden?: boolean; cursor?: string }) => Promise<PostPage>;
   getPost?: (slug: string) => Promise<repo.Item | null>;
   getAuthConfig?: () => Promise<AuthConfigShape>;
   verifyMcpSecret?: (secret: string) => Promise<boolean>;
@@ -404,13 +404,20 @@ export async function buildApp(deps: AppDeps = {}): Promise<FastifyInstance> {
     return getSiteContent(sub ? { includeHidden: true } : undefined);
   });
 
-  app.get("/api/posts", async (req) => {
-    const q = req.query as { limit?: string; includeHidden?: string };
+  app.get("/api/posts", async (req, reply) => {
+    const q = req.query as { limit?: string; includeHidden?: string; cursor?: string };
     const parsed = Number.parseInt(q.limit ?? "", 10);
     const limit = Number.isFinite(parsed) ? Math.min(100, Math.max(1, parsed)) : 10;
     // includeHidden is ONLY honored when a valid access token is present.
     const sub = q.includeHidden === "true" ? await principalFrom(req, authCtx) : null;
-    return listPosts({ limit, includeHidden: !!sub });
+    try {
+      return await listPosts({ limit, includeHidden: !!sub, cursor: q.cursor });
+    } catch (err) {
+      if (err instanceof Error && err.message === "invalid cursor") {
+        return reply.code(400).send({ error: "invalid cursor" });
+      }
+      throw err;
+    }
   });
 
   app.get<{ Params: { slug: string } }>("/api/posts/:slug", async (req, reply) => {
