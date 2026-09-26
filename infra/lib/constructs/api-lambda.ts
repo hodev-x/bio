@@ -12,6 +12,8 @@ export interface ApiLambdaProps {
   tables: ContentTables;
   envName: string;
   rpId: string;
+  /** SSM parameter NAME (not value) holding the shared origin-verify secret, e.g. "/bio/staging/origin-verify". */
+  originVerifyParam?: string;
 }
 
 // Public Lambda Web Adapter layer ARN (x86_64). Region is resolved at deploy time.
@@ -24,7 +26,7 @@ export class ApiLambda extends Construct {
 
   constructor(scope: Construct, id: string, props: ApiLambdaProps) {
     super(scope, id);
-    const { tables, envName, rpId } = props;
+    const { tables, envName, rpId, originVerifyParam } = props;
 
     // api/dist is produced by `pnpm --filter @bio/api build`; anchor to this file.
     const codePath = path.resolve(import.meta.dirname, "../../../api/dist");
@@ -70,6 +72,7 @@ export class ApiLambda extends Construct {
         RP_ID: rpId,
         RP_ORIGIN: `https://${rpId}`,
         RP_NAME: "Daniel Hodeta",
+        ...(originVerifyParam ? { ORIGIN_VERIFY_SECRET: `{{resolve:ssm:${originVerifyParam}}}` } : {}),
       },
     });
 

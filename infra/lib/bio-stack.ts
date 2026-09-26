@@ -29,7 +29,19 @@ export class BioStack extends Stack {
     // CFN can't create SecureString params. They're provisioned out-of-band as SecureString by
     // `pnpm --filter @bio/api provision:secrets --env <env>`; the Lambda has IAM read on
     // /bio/<env>/* and fails loud (config.ts) if they're missing/placeholder.
-    const api = new ApiLambda(this, "Api", { tables, envName: props.envName, rpId: siteDomain });
+    // Shared secret CloudFront attaches to /api/* requests and the API rejects
+    // requests missing it — prevents callers from hitting the Lambda directly,
+    // bypassing CloudFront (see api-lambda.ts's origin-verify check). Provisioned
+    // out-of-band as a plain SSM String by `provision:secrets` (Task 2); the
+    // dynamic reference below resolves it at deploy time in both places.
+    const originVerifyParam = `/bio/${props.envName}/origin-verify`;
+
+    const api = new ApiLambda(this, "Api", {
+      tables,
+      envName: props.envName,
+      rpId: siteDomain,
+      originVerifyParam,
+    });
     const apiOrigin = Fn.select(2, Fn.split("/", api.httpApi.apiEndpoint));
 
     const site = new StaticSite(this, "Site", {
@@ -38,6 +50,7 @@ export class BioStack extends Stack {
       includeWww: isProd,
       webDistPath: WEB_DIST_PATH,
       apiOrigin,
+      originVerifyParam,
     });
     void site;
   }

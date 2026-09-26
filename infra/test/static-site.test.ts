@@ -12,6 +12,7 @@ function synthApex() {
     includeWww: true,
     webDistPath: "../web/dist",
     apiOrigin: "abc.execute-api.us-east-1.amazonaws.com",
+    originVerifyParam: "/bio/prod/origin-verify",
   });
   return Template.fromStack(stack);
 }
@@ -50,16 +51,10 @@ describe("StaticSite — APEX (includeWww: true)", () => {
     });
   });
 
-  it("rewrites 403/404 to /index.html with 200 for SPA routing", () => {
+  it("has no distribution-wide error responses (SPA fallback is a per-behavior CloudFront Function instead)", () => {
     const t = synthApex();
-    t.hasResourceProperties("AWS::CloudFront::Distribution", {
-      DistributionConfig: Match.objectLike({
-        CustomErrorResponses: Match.arrayWith([
-          Match.objectLike({ ErrorCode: 403, ResponseCode: 200, ResponsePagePath: "/index.html" }),
-          Match.objectLike({ ErrorCode: 404, ResponseCode: 200, ResponsePagePath: "/index.html" }),
-        ]),
-      }),
-    });
+    const dist = Object.values(t.findResources("AWS::CloudFront::Distribution"))[0].Properties.DistributionConfig;
+    expect(dist.CustomErrorResponses).toBeUndefined();
   });
 
   it("creates exactly 2 Route53 A record sets (apex + www)", () => {
@@ -114,16 +109,10 @@ describe("StaticSite — SUBDOMAIN (includeWww: false)", () => {
     });
   });
 
-  it("rewrites 403/404 to /index.html with 200 for SPA routing", () => {
+  it("has no distribution-wide error responses (SPA fallback is a per-behavior CloudFront Function instead)", () => {
     const t = synthSubdomain();
-    t.hasResourceProperties("AWS::CloudFront::Distribution", {
-      DistributionConfig: Match.objectLike({
-        CustomErrorResponses: Match.arrayWith([
-          Match.objectLike({ ErrorCode: 403, ResponseCode: 200, ResponsePagePath: "/index.html" }),
-          Match.objectLike({ ErrorCode: 404, ResponseCode: 200, ResponsePagePath: "/index.html" }),
-        ]),
-      }),
-    });
+    const dist = Object.values(t.findResources("AWS::CloudFront::Distribution"))[0].Properties.DistributionConfig;
+    expect(dist.CustomErrorResponses).toBeUndefined();
   });
 
   it("deploys the web build into the bucket via a BucketDeployment", () => {

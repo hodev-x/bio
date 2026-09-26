@@ -1,4 +1,4 @@
-import { RemovalPolicy, Duration } from "aws-cdk-lib";
+import { RemovalPolicy } from "aws-cdk-lib";
 import { Construct } from "constructs";
 import * as s3 from "aws-cdk-lib/aws-s3";
 import * as cloudfront from "aws-cdk-lib/aws-cloudfront";
@@ -8,6 +8,7 @@ import * as route53 from "aws-cdk-lib/aws-route53";
 import * as targets from "aws-cdk-lib/aws-route53-targets";
 import * as s3deploy from "aws-cdk-lib/aws-s3-deployment";
 import * as path from "node:path";
+import { spaFallbackCode } from "./spa-fallback-function.js";
 
 export interface StaticSiteProps {
   /** Primary record + ACM CN, e.g. "staging.danielhodeta.com" or "danielhodeta.com". */
@@ -20,6 +21,8 @@ export interface StaticSiteProps {
   webDistPath: string;
   /** Domain of the HTTP API origin (e.g. xxxx.execute-api.us-east-1.amazonaws.com). */
   apiOrigin?: string;
+  /** SSM parameter NAME (not value) holding the shared origin-verify secret, e.g. "/bio/staging/origin-verify". */
+  originVerifyParam?: string;
 }
 
 export class StaticSite extends Construct {
@@ -54,13 +57,27 @@ export class StaticSite extends Construct {
     const additionalBehaviors: Record<string, cloudfront.BehaviorOptions> = {};
     if (props.apiOrigin) {
       additionalBehaviors["/api/*"] = {
-        origin: new origins.HttpOrigin(props.apiOrigin),
+        origin: new origins.HttpOrigin(
+          props.apiOrigin,
+          props.originVerifyParam
+            ? { customHeaders: { "x-origin-verify": `{{resolve:ssm:${props.originVerifyParam}}}` } }
+            : {},
+        ),
         viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
         allowedMethods: cloudfront.AllowedMethods.ALLOW_ALL,
         cachePolicy: cloudfront.CachePolicy.CACHING_DISABLED,
         originRequestPolicy: cloudfront.OriginRequestPolicy.ALL_VIEWER_EXCEPT_HOST_HEADER,
       };
     }
+
+    // Client-side routes have no file extension; a CloudFront Function on the
+    // default behavior rewrites those to /index.html so the SPA router can take
+    // over. Scoped to this behavior only (not distribution-wide error responses)
+    // so /api/* 404s stay real 404s.
+    const fallback = new cloudfront.Function(this, "SpaFallback", {
+      code: cloudfront.FunctionCode.fromInline(spaFallbackCode()),
+      runtime: cloudfront.FunctionRuntime.JS_2_0,
+    });
 
     this.distribution = new cloudfront.Distribution(this, "Distribution", {
       defaultRootObject: "index.html",
@@ -70,22 +87,9 @@ export class StaticSite extends Construct {
         origin: origins.S3BucketOrigin.withOriginAccessControl(this.bucket),
         viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
         cachePolicy: cloudfront.CachePolicy.CACHING_OPTIMIZED,
+        functionAssociations: [{ function: fallback, eventType: cloudfront.FunctionEventType.VIEWER_REQUEST }],
       },
       additionalBehaviors,
-      errorResponses: [
-        {
-          httpStatus: 403,
-          responseHttpStatus: 200,
-          responsePagePath: "/index.html",
-          ttl: Duration.minutes(5),
-        },
-        {
-          httpStatus: 404,
-          responseHttpStatus: 200,
-          responsePagePath: "/index.html",
-          ttl: Duration.minutes(5),
-        },
-      ],
     });
 
     const target = route53.RecordTarget.fromAlias(
