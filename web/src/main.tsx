@@ -4,6 +4,7 @@ import { BrowserRouter } from "react-router";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { AppRoutes } from "./router";
 import { AuthProvider } from "./hooks/useAuth";
+import "@fontsource-variable/newsreader";
 import "./styles/admin.css";
 import "./styles/public.css";
 
