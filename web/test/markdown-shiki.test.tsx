@@ -1,6 +1,23 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import { Markdown } from "../src/components/Markdown";
+import { getRehypeShiki, _resetHighlighterForTests } from "../src/markdown/highlighter";
+
+// Lets a single test force one rejection from createHighlighterCore while every
+// other test (and every other call) goes through the real implementation.
+let forceRejectOnce = false;
+
+vi.mock("@shikijs/core", async () => {
+  const actual = await vi.importActual<typeof import("@shikijs/core")>("@shikijs/core");
+  const createHighlighterCore: typeof actual.createHighlighterCore = (options) => {
+    if (forceRejectOnce) {
+      forceRejectOnce = false;
+      return Promise.reject(new Error("chunk load failed"));
+    }
+    return actual.createHighlighterCore(options);
+  };
+  return { ...actual, createHighlighterCore };
+});
 
 describe("Markdown + Shiki", () => {
   it("highlights a fenced ts block (spans with shiki styles) after the lazy load", async () => {
@@ -18,5 +35,11 @@ describe("Markdown + Shiki", () => {
     const { container } = render(<Markdown source={"<script>alert(1)</script>\n\n**ok**"} />);
     await waitFor(() => expect(screen.getByText("ok")).toBeInTheDocument());
     expect(container.querySelector("script")).toBeNull();
+  });
+  it("retries on the next call instead of caching a rejected load forever", async () => {
+    _resetHighlighterForTests();
+    forceRejectOnce = true;
+    await expect(getRehypeShiki()).rejects.toThrow("chunk load failed");
+    await expect(getRehypeShiki()).resolves.toBeDefined();
   });
 });

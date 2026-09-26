@@ -28,6 +28,19 @@ export function getRehypeShiki(): Promise<RehypePlugin> {
       hl,
       { themes: { light: "github-light", dark: "github-dark" }, defaultColor: false, fallbackLanguage: "text" },
     ] as unknown as RehypePlugin;
-  })();
+  })().catch((err) => {
+    // A failed load (e.g. a theme/lang chunk dropped on a flaky connection)
+    // must not poison the singleton forever: clear it so the next mount's
+    // getRehypeShiki() call retries from scratch, while this caller still
+    // sees the rejection.
+    plugin = null;
+    throw err;
+  });
   return plugin;
+}
+
+// Test-only escape hatch: the module-level singleton otherwise leaks a
+// resolved highlighter across test cases in the same file.
+export function _resetHighlighterForTests(): void {
+  plugin = null;
 }
