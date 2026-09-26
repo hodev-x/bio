@@ -30,9 +30,14 @@ function arg(name: string, fallback?: string): string {
   throw new Error(`missing required --${name}`);
 }
 
-function flag(name: string): string | undefined {
+export function flag(name: string): string | undefined {
   const i = process.argv.indexOf(`--${name}`);
-  return i !== -1 && process.argv[i + 1] ? process.argv[i + 1] : undefined;
+  if (i === -1) return undefined;
+  const value = process.argv[i + 1];
+  if (!value || value.startsWith("--")) {
+    throw new Error(`--${name} requires a value (usage: --${name} <value>) — omit the flag entirely to write everything`);
+  }
+  return value;
 }
 
 async function putSecure(ssm: SSMClient, name: string, value: string): Promise<void> {
@@ -87,7 +92,10 @@ async function main(): Promise<void> {
   if (wants("jwt-signing-key")) console.log("The JWT signing key was stored server-side only (not printed).\n");
 }
 
-main().catch((err) => {
-  console.error(err);
-  process.exit(1);
-});
+// Guard so importing this module (e.g. from a test) doesn't run main() against real AWS.
+if (import.meta.url === `file://${process.argv[1]}`) {
+  main().catch((err) => {
+    console.error(err);
+    process.exit(1);
+  });
+}
