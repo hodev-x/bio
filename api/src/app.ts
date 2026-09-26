@@ -44,9 +44,10 @@ function safeEqual(a: string, b: string): boolean {
 // The rightmost entry is a rotating CloudFront egress IP on the normal path
 // (useless as a key), so prefer the second-from-right — the viewer IP that
 // CloudFront itself appended, which a caller cannot position-spoof through
-// CloudFront. Callers hitting the execute-api URL directly with a forged
-// header can still rotate buckets; closing that requires an origin-verify
-// header or WAF (tracked as a follow-up in the platform hub).
+// CloudFront. Direct execute-api callers (who could otherwise forge an XFF
+// prefix to rotate buckets) are rejected by the origin-verify hook when
+// configured, so the second-from-right entry is CloudFront-appended and
+// trustworthy.
 function clientKey(req: FastifyRequest): string {
   const xff = req.headers["x-forwarded-for"];
   const raw = Array.isArray(xff) ? xff.join(",") : xff;
