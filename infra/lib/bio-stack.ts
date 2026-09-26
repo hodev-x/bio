@@ -31,7 +31,7 @@ export class BioStack extends Stack {
     // /bio/<env>/* and fails loud (config.ts) if they're missing/placeholder.
     // Shared secret CloudFront attaches to /api/* requests and the API rejects
     // requests missing it — prevents callers from hitting the Lambda directly,
-    // bypassing CloudFront (see api-lambda.ts's origin-verify check). Provisioned
+    // bypassing CloudFront (see api/src/origin-verify.ts's check). Provisioned
     // out-of-band as a plain SSM String by `provision:secrets` (Task 2); the
     // dynamic reference below resolves it at deploy time in both places.
     const originVerifyParam = `/bio/${props.envName}/origin-verify`;
@@ -44,7 +44,7 @@ export class BioStack extends Stack {
     });
     const apiOrigin = Fn.select(2, Fn.split("/", api.httpApi.apiEndpoint));
 
-    const site = new StaticSite(this, "Site", {
+    new StaticSite(this, "Site", {
       domainName: siteDomain,
       zoneName: props.zoneDomain,
       includeWww: isProd,
@@ -52,6 +52,5 @@ export class BioStack extends Stack {
       apiOrigin,
       originVerifyParam,
     });
-    void site;
   }
 }
