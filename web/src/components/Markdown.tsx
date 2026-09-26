@@ -1,8 +1,18 @@
-import ReactMarkdown from "react-markdown";
+import { useEffect, useState } from "react";
+import ReactMarkdown, { type Options } from "react-markdown";
 import rehypeSanitize from "rehype-sanitize";
+import { getRehypeShiki } from "../markdown/highlighter";
 
-// Shared rendering pipeline: the public blog will use this same component
-// (Shiki code highlighting joins it in the public-site plan).
+type Plugins = NonNullable<Options["rehypePlugins"]>;
+
+// Shared pipeline (admin preview + public blog): sanitize the untrusted
+// source FIRST, then let Shiki decorate the <pre><code> it produced.
 export function Markdown({ source }: { source: string }) {
-  return <ReactMarkdown rehypePlugins={[rehypeSanitize]}>{source}</ReactMarkdown>;
+  const [plugins, setPlugins] = useState<Plugins>([rehypeSanitize]);
+  useEffect(() => {
+    let live = true;
+    getRehypeShiki().then((shiki) => { if (live) setPlugins([rehypeSanitize, shiki]); }).catch(() => undefined);
+    return () => { live = false; };
+  }, []);
+  return <ReactMarkdown rehypePlugins={plugins}>{source}</ReactMarkdown>;
 }
