@@ -7,3 +7,6 @@ cdk.context.json
 *.log
 .DS_Store
 docs/
+.superpowers/
+.worktrees/
+.omc/
