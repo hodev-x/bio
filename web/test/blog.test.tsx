@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Routes, Route } from "react-router";
@@ -17,6 +17,8 @@ describe("BlogList", () => {
       .mockResolvedValueOnce(json({ items: [{ slug: "one", title: "One", publishedAt: "2026-01-01T00:00:00.000Z", tags: [] }], cursor: null }));
     ui();
     expect(await screen.findByRole("link", { name: "Two" })).toHaveAttribute("href", "/blog/two");
+    expect(screen.getByRole("heading", { level: 1, name: "Writing" })).toBeInTheDocument();
+    await waitFor(() => expect(document.title).toBe("Writing — Daniel Hodeta"));
     expect(screen.getByText("aws")).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: /load more/i }));
     expect(await screen.findByRole("link", { name: "One" })).toBeInTheDocument();
