@@ -11,6 +11,16 @@ describe("Meta", () => {
     expect(document.head.querySelector('meta[property="og:title"]')?.getAttribute("content")).toBe("T — Daniel Hodeta");
   });
 
+  it("renders a per-route canonical link and og:url matching the current location", async () => {
+    render(<Meta title="T — Daniel Hodeta" description="D" />);
+    await waitFor(() => expect(document.title).toBe("T — Daniel Hodeta"));
+    const canonical = document.head.querySelector('link[rel="canonical"]');
+    expect(canonical?.getAttribute("href")?.endsWith(window.location.pathname)).toBe(true);
+    expect(document.head.querySelector('meta[property="og:url"]')?.getAttribute("content")).toBe(
+      window.location.origin + window.location.pathname,
+    );
+  });
+
   describe("stripStaticMeta", () => {
     afterEach(() => {
       document.head.querySelectorAll('[data-static-meta-test]').forEach((n) => n.remove());
