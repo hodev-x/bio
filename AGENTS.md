@@ -37,6 +37,9 @@ infra/   AWS CDK (TypeScript, ESM, run via tsx)
   GitHub OIDC (no stored AWS keys), running `cdk deploy` for the foundation + staging stacks.
 - Production is a **manual, gated** workflow (`deploy-prod.yml`, `workflow_dispatch`).
 - Infra is two environments from one codebase: `BioStack-staging` / `BioStack-prod`.
+- The SSM parameter `/bio/<env>/origin-verify` must exist before `cdk deploy` for that env
+  (`pnpm --filter @bio/api exec tsx scripts/provision-secrets.ts --env <env> --only origin-verify`);
+  the stack resolves it at deploy time.
 
 ## Notes
 - No secrets in this repo — runtime secrets live in AWS SSM; CI auth is keyless OIDC.
