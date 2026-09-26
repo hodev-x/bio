@@ -100,11 +100,34 @@ export class StaticSite extends Construct {
       new route53.ARecord(this, "WwwA", { zone, target, recordName: wwwName });
     }
 
-    new s3deploy.BucketDeployment(this, "DeployWeb", {
-      sources: [s3deploy.Source.asset(path.resolve(props.webDistPath))],
+    // index.html references content-hashed asset filenames, so it must never
+    // be cached as long as they are: a browser holding a cached index.html
+    // could reference assets a later deploy has pruned. Split the deploy so
+    // index.html gets short-lived caching and the hashed assets get
+    // long-lived immutable caching.
+    const webAssets = s3deploy.Source.asset(path.resolve(props.webDistPath));
+
+    const deployAssets = new s3deploy.BucketDeployment(this, "DeployAssets", {
+      sources: [webAssets],
       destinationBucket: this.bucket,
+      exclude: ["index.html"],
+      cacheControl: [s3deploy.CacheControl.fromString("public, max-age=31536000, immutable")],
+    });
+
+    const deployIndex = new s3deploy.BucketDeployment(this, "DeployIndex", {
+      sources: [webAssets],
+      destinationBucket: this.bucket,
+      exclude: ["*"],
+      include: ["index.html"],
+      // This deployment's source view is scoped to index.html alone; pruning
+      // here would delete every hashed asset DeployAssets just uploaded.
+      prune: false,
+      cacheControl: [s3deploy.CacheControl.fromString("no-cache")],
       distribution: this.distribution,
       distributionPaths: ["/*"],
     });
+    // Upload the hashed assets before publishing the index.html that
+    // references them.
+    deployIndex.node.addDependency(deployAssets);
   }
 }
