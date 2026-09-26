@@ -32,6 +32,8 @@ jobs:
 
       - run: pnpm --filter @bio/web typecheck
 
+      - run: pnpm --filter @bio/web test
+
       - run: pnpm --filter @bio/web build
 
       - run: pnpm --filter @bio/api typecheck
