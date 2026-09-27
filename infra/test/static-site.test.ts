@@ -12,6 +12,7 @@ function synthApex() {
     includeWww: true,
     webDistPath: "../web/dist",
     apiOrigin: "abc.execute-api.us-east-1.amazonaws.com",
+    originVerifyParam: "/bio/prod/origin-verify",
   });
   return Template.fromStack(stack);
 }
@@ -50,16 +51,10 @@ describe("StaticSite — APEX (includeWww: true)", () => {
     });
   });
 
-  it("rewrites 403/404 to /index.html with 200 for SPA routing", () => {
+  it("has no distribution-wide error responses (SPA fallback is a per-behavior CloudFront Function instead)", () => {
     const t = synthApex();
-    t.hasResourceProperties("AWS::CloudFront::Distribution", {
-      DistributionConfig: Match.objectLike({
-        CustomErrorResponses: Match.arrayWith([
-          Match.objectLike({ ErrorCode: 403, ResponseCode: 200, ResponsePagePath: "/index.html" }),
-          Match.objectLike({ ErrorCode: 404, ResponseCode: 200, ResponsePagePath: "/index.html" }),
-        ]),
-      }),
-    });
+    const dist = Object.values(t.findResources("AWS::CloudFront::Distribution"))[0].Properties.DistributionConfig;
+    expect(dist.CustomErrorResponses).toBeUndefined();
   });
 
   it("creates exactly 2 Route53 A record sets (apex + www)", () => {
@@ -67,9 +62,29 @@ describe("StaticSite — APEX (includeWww: true)", () => {
     t.resourceCountIs("AWS::Route53::RecordSet", 2);
   });
 
-  it("deploys the web build into the bucket via a BucketDeployment", () => {
+  it("deploys the web build into the bucket via two BucketDeployments (assets + index.html)", () => {
     const t = synthApex();
-    t.resourceCountIs("Custom::CDKBucketDeployment", 1);
+    t.resourceCountIs("Custom::CDKBucketDeployment", 2);
+  });
+
+  it("caches index.html as no-cache and hashed assets as immutable", () => {
+    const t = synthApex();
+    const deployments = Object.values(t.findResources("Custom::CDKBucketDeployment")).map(
+      (d) => (d as { Properties: Record<string, unknown> }).Properties,
+    );
+    const cacheControls = deployments.map((p) => p.SystemMetadata as Record<string, unknown> | undefined);
+    expect(cacheControls.some((m) => m?.["cache-control"] === "no-cache")).toBe(true);
+    expect(cacheControls.some((m) => m?.["cache-control"] === "public, max-age=31536000, immutable")).toBe(true);
+
+    const indexDeployment = deployments.find((p) => p.SystemMetadata && (p.SystemMetadata as Record<string, unknown>)["cache-control"] === "no-cache");
+    expect(indexDeployment?.Include).toEqual(["index.html"]);
+    expect(indexDeployment?.Exclude).toEqual(["*"]);
+    expect(indexDeployment?.Prune).toBe(false);
+
+    const assetsDeployment = deployments.find(
+      (p) => p.SystemMetadata && (p.SystemMetadata as Record<string, unknown>)["cache-control"] === "public, max-age=31536000, immutable",
+    );
+    expect(assetsDeployment?.Exclude).toEqual(["index.html"]);
   });
 
   it("adds an /api/* behavior with caching disabled", () => {
@@ -114,20 +129,14 @@ describe("StaticSite — SUBDOMAIN (includeWww: false)", () => {
     });
   });
 
-  it("rewrites 403/404 to /index.html with 200 for SPA routing", () => {
+  it("has no distribution-wide error responses (SPA fallback is a per-behavior CloudFront Function instead)", () => {
     const t = synthSubdomain();
-    t.hasResourceProperties("AWS::CloudFront::Distribution", {
-      DistributionConfig: Match.objectLike({
-        CustomErrorResponses: Match.arrayWith([
-          Match.objectLike({ ErrorCode: 403, ResponseCode: 200, ResponsePagePath: "/index.html" }),
-          Match.objectLike({ ErrorCode: 404, ResponseCode: 200, ResponsePagePath: "/index.html" }),
-        ]),
-      }),
-    });
+    const dist = Object.values(t.findResources("AWS::CloudFront::Distribution"))[0].Properties.DistributionConfig;
+    expect(dist.CustomErrorResponses).toBeUndefined();
   });
 
-  it("deploys the web build into the bucket via a BucketDeployment", () => {
+  it("deploys the web build into the bucket via two BucketDeployments (assets + index.html)", () => {
     const t = synthSubdomain();
-    t.resourceCountIs("Custom::CDKBucketDeployment", 1);
+    t.resourceCountIs("Custom::CDKBucketDeployment", 2);
   });
 });

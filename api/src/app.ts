@@ -14,6 +14,7 @@ import { verifySecret } from "./auth/hash.js";
 import { hashSecret, generateRecoveryCodes } from "./auth/hash.js";
 import { signAccessToken, signRefreshToken, verifyToken } from "./auth/jwt.js";
 import { makeRequireAuth, principalFrom } from "./auth/middleware.js";
+import { registerOriginVerify } from "./origin-verify.js";
 import {
   generateRegistration,
   verifyRegistration,
@@ -43,9 +44,10 @@ function safeEqual(a: string, b: string): boolean {
 // The rightmost entry is a rotating CloudFront egress IP on the normal path
 // (useless as a key), so prefer the second-from-right — the viewer IP that
 // CloudFront itself appended, which a caller cannot position-spoof through
-// CloudFront. Callers hitting the execute-api URL directly with a forged
-// header can still rotate buckets; closing that requires an origin-verify
-// header or WAF (tracked as a follow-up in the platform hub).
+// CloudFront. Direct execute-api callers (who could otherwise forge an XFF
+// prefix to rotate buckets) are rejected by the origin-verify hook when
+// configured, so the second-from-right entry is CloudFront-appended and
+// trustworthy.
 function clientKey(req: FastifyRequest): string {
   const xff = req.headers["x-forwarded-for"];
   const raw = Array.isArray(xff) ? xff.join(",") : xff;
@@ -70,7 +72,7 @@ export type VerifyAuthenticationFn = (opts: VerifyAuthenticationResponseOpts) =>
 
 export interface AppDeps {
   getSiteContent?: (opts?: { includeHidden?: boolean }) => Promise<SiteContent>;
-  listPosts?: (opts?: { limit?: number; includeHidden?: boolean }) => Promise<PostPage>;
+  listPosts?: (opts?: { limit?: number; includeHidden?: boolean; cursor?: string }) => Promise<PostPage>;
   getPost?: (slug: string) => Promise<repo.Item | null>;
   getAuthConfig?: () => Promise<AuthConfigShape>;
   verifyMcpSecret?: (secret: string) => Promise<boolean>;
@@ -92,6 +94,7 @@ export interface AppDeps {
   deleteEntity?: (type: EntityType, key: string) => Promise<void>;
   patchVisible?: (type: EntityType, key: string, visible: boolean) => Promise<boolean>;
   createPost?: (item: Record<string, unknown>) => Promise<boolean>;
+  originVerifySecret?: string;
 }
 
 export async function buildApp(deps: AppDeps = {}): Promise<FastifyInstance> {
@@ -99,6 +102,8 @@ export async function buildApp(deps: AppDeps = {}): Promise<FastifyInstance> {
 
   // Register cookie plugin (required for flowId + refresh token cookies).
   await app.register(fastifyCookie);
+
+  registerOriginVerify(app, "originVerifySecret" in deps ? deps.originVerifySecret : process.env.ORIGIN_VERIFY_SECRET);
 
   // Brute-force guard: only /api/auth/* is limited (token, login, register, recovery).
   await app.register(rateLimit, {
@@ -404,13 +409,20 @@ export async function buildApp(deps: AppDeps = {}): Promise<FastifyInstance> {
     return getSiteContent(sub ? { includeHidden: true } : undefined);
   });
 
-  app.get("/api/posts", async (req) => {
-    const q = req.query as { limit?: string; includeHidden?: string };
+  app.get("/api/posts", async (req, reply) => {
+    const q = req.query as { limit?: string; includeHidden?: string; cursor?: string };
     const parsed = Number.parseInt(q.limit ?? "", 10);
     const limit = Number.isFinite(parsed) ? Math.min(100, Math.max(1, parsed)) : 10;
     // includeHidden is ONLY honored when a valid access token is present.
     const sub = q.includeHidden === "true" ? await principalFrom(req, authCtx) : null;
-    return listPosts({ limit, includeHidden: !!sub });
+    try {
+      return await listPosts({ limit, includeHidden: !!sub, cursor: q.cursor });
+    } catch (err) {
+      if (err instanceof Error && err.message === "invalid cursor") {
+        return reply.code(400).send({ error: "invalid cursor" });
+      }
+      throw err;
+    }
   });
 
   app.get<{ Params: { slug: string } }>("/api/posts/:slug", async (req, reply) => {

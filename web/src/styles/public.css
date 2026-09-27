@@ -1,0 +1,49 @@
+/* Shiki dual theme: defaultColor:false emits --shiki-light/--shiki-dark on every token. */
+.shiki, .shiki span { color: var(--shiki-light); background-color: var(--shiki-light-bg); }
+@media (prefers-color-scheme: dark) { .shiki, .shiki span { color: var(--shiki-dark); background-color: var(--shiki-dark-bg); } }
+pre.shiki { padding: .9rem 1rem; border-radius: 6px; overflow-x: auto; font: .85rem/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; }
+
+.public {
+  --p-bg: #fbfaf7; --p-fg: #1c1b19; --p-muted: #6b6760; --p-rule: #e4e1da; --p-accent: #2f5d8a;
+  --p-serif: "Newsreader Variable", Georgia, serif;
+  --p-sans: system-ui, -apple-system, "Segoe UI", sans-serif;
+  --p-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+  --p-measure: 65ch;
+  background: var(--p-bg); color: var(--p-fg); font: 17px/1.6 var(--p-sans); min-height: 100vh;
+}
+@media (prefers-color-scheme: dark) {
+  .public { --p-bg: #121212; --p-fg: #e9e6df; --p-muted: #9b978f; --p-rule: #2a2a2a; --p-accent: #8ab4e8; }
+}
+.public a { color: var(--p-accent); text-decoration-thickness: 1px; text-underline-offset: 2px; }
+.public h1, .public h2, .public h3 { font-family: var(--p-serif); font-weight: 500; letter-spacing: -.01em; line-height: 1.15; }
+.public h1 { font-size: clamp(2.2rem, 5vw, 3.4rem); margin: 0 0 .5rem; }
+.public h2 { font-size: 1.6rem; margin: 0 0 1rem; }
+.public .site-header, .public main, .public .site-footer { max-width: var(--p-measure); margin: 0 auto; padding: 0 1.25rem; }
+.public .site-header { display: flex; justify-content: space-between; align-items: baseline; padding-top: 1.5rem; padding-bottom: 1.5rem; }
+.public .site-header nav { display: flex; gap: 1.25rem; align-items: baseline; }
+.public .site-name { font-family: var(--p-serif); font-size: 1.15rem; color: inherit; text-decoration: none; }
+.public .mode-toggle { font: .75rem var(--p-mono); letter-spacing: .04em; text-transform: lowercase; background: none; border: 1px solid var(--p-rule); border-radius: 999px; padding: .15rem .6rem; color: var(--p-muted); cursor: pointer; }
+.public .mode-toggle[aria-pressed="true"] { border-color: var(--p-accent); color: var(--p-accent); }
+.public section { padding: 2.5rem 0; border-top: 1px solid var(--p-rule); }
+.public section:first-of-type { border-top: 0; }
+.public .label { font: .72rem var(--p-mono); letter-spacing: .12em; text-transform: uppercase; color: var(--p-muted); margin: 0 0 1.25rem; }
+.public .hero .tagline { font-family: var(--p-serif); font-size: 1.35rem; color: var(--p-muted); margin: 0 0 1.25rem; }
+.public .timeline { list-style: none; margin: 0; padding: 0; }
+.public .timeline li { display: grid; grid-template-columns: 9.5rem 1fr; gap: 1.25rem; padding: .9rem 0; }
+.public .timeline .when { font: .8rem/1.9 var(--p-mono); color: var(--p-muted); }
+.public .timeline .what strong { display: block; font-weight: 600; }
+.public .timeline ul { margin: .4rem 0 0; padding-left: 1.1rem; }
+.public .list { list-style: none; margin: 0; padding: 0; }
+.public .list li { padding: .7rem 0; border-bottom: 1px dashed var(--p-rule); }
+.public .list .meta { font: .78rem var(--p-mono); color: var(--p-muted); }
+.public .skills dt { font-weight: 600; margin-top: .6rem; }
+.public .skills dd { margin: 0; color: var(--p-muted); }
+.public .tech { list-style: none; margin: .5rem 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: .35rem; }
+.public .tech li { font: .72rem/1.6 var(--p-mono); border: 1px solid var(--p-rule); border-radius: 4px; padding: 0 .45rem; color: var(--p-muted); }
+.public .tech-k { color: var(--p-accent); }
+.public .post-body { font-size: 1.05rem; }
+.public .post-body img { max-width: 100%; }
+.public .site-footer { display: flex; gap: 1.25rem; padding-top: 2rem; padding-bottom: 3rem; font-size: .9rem; text-transform: capitalize; }
+.public .skeleton { height: 1em; background: var(--p-rule); border-radius: 3px; margin: .5rem 0; width: 60%; }
+.public .error { border: 1px solid var(--p-rule); padding: 1rem; border-radius: 6px; }
+@media (max-width: 640px) { .public .timeline li { grid-template-columns: 1fr; gap: .2rem; } }

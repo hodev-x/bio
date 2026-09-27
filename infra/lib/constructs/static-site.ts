@@ -1,4 +1,4 @@
-import { RemovalPolicy, Duration } from "aws-cdk-lib";
+import { RemovalPolicy } from "aws-cdk-lib";
 import { Construct } from "constructs";
 import * as s3 from "aws-cdk-lib/aws-s3";
 import * as cloudfront from "aws-cdk-lib/aws-cloudfront";
@@ -8,6 +8,7 @@ import * as route53 from "aws-cdk-lib/aws-route53";
 import * as targets from "aws-cdk-lib/aws-route53-targets";
 import * as s3deploy from "aws-cdk-lib/aws-s3-deployment";
 import * as path from "node:path";
+import { spaFallbackCode } from "./spa-fallback-function.js";
 
 export interface StaticSiteProps {
   /** Primary record + ACM CN, e.g. "staging.danielhodeta.com" or "danielhodeta.com". */
@@ -20,6 +21,8 @@ export interface StaticSiteProps {
   webDistPath: string;
   /** Domain of the HTTP API origin (e.g. xxxx.execute-api.us-east-1.amazonaws.com). */
   apiOrigin?: string;
+  /** SSM parameter NAME (not value) holding the shared origin-verify secret, e.g. "/bio/staging/origin-verify". */
+  originVerifyParam?: string;
 }
 
 export class StaticSite extends Construct {
@@ -54,13 +57,27 @@ export class StaticSite extends Construct {
     const additionalBehaviors: Record<string, cloudfront.BehaviorOptions> = {};
     if (props.apiOrigin) {
       additionalBehaviors["/api/*"] = {
-        origin: new origins.HttpOrigin(props.apiOrigin),
+        origin: new origins.HttpOrigin(
+          props.apiOrigin,
+          props.originVerifyParam
+            ? { customHeaders: { "x-origin-verify": `{{resolve:ssm:${props.originVerifyParam}}}` } }
+            : {},
+        ),
         viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
         allowedMethods: cloudfront.AllowedMethods.ALLOW_ALL,
         cachePolicy: cloudfront.CachePolicy.CACHING_DISABLED,
         originRequestPolicy: cloudfront.OriginRequestPolicy.ALL_VIEWER_EXCEPT_HOST_HEADER,
       };
     }
+
+    // Client-side routes have no file extension; a CloudFront Function on the
+    // default behavior rewrites those to /index.html so the SPA router can take
+    // over. Scoped to this behavior only (not distribution-wide error responses)
+    // so /api/* 404s stay real 404s.
+    const fallback = new cloudfront.Function(this, "SpaFallback", {
+      code: cloudfront.FunctionCode.fromInline(spaFallbackCode()),
+      runtime: cloudfront.FunctionRuntime.JS_2_0,
+    });
 
     this.distribution = new cloudfront.Distribution(this, "Distribution", {
       defaultRootObject: "index.html",
@@ -70,22 +87,9 @@ export class StaticSite extends Construct {
         origin: origins.S3BucketOrigin.withOriginAccessControl(this.bucket),
         viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
         cachePolicy: cloudfront.CachePolicy.CACHING_OPTIMIZED,
+        functionAssociations: [{ function: fallback, eventType: cloudfront.FunctionEventType.VIEWER_REQUEST }],
       },
       additionalBehaviors,
-      errorResponses: [
-        {
-          httpStatus: 403,
-          responseHttpStatus: 200,
-          responsePagePath: "/index.html",
-          ttl: Duration.minutes(5),
-        },
-        {
-          httpStatus: 404,
-          responseHttpStatus: 200,
-          responsePagePath: "/index.html",
-          ttl: Duration.minutes(5),
-        },
-      ],
     });
 
     const target = route53.RecordTarget.fromAlias(
@@ -96,11 +100,34 @@ export class StaticSite extends Construct {
       new route53.ARecord(this, "WwwA", { zone, target, recordName: wwwName });
     }
 
-    new s3deploy.BucketDeployment(this, "DeployWeb", {
-      sources: [s3deploy.Source.asset(path.resolve(props.webDistPath))],
+    // index.html references content-hashed asset filenames, so it must never
+    // be cached as long as they are: a browser holding a cached index.html
+    // could reference assets a later deploy has pruned. Split the deploy so
+    // index.html gets short-lived caching and the hashed assets get
+    // long-lived immutable caching.
+    const webAssets = s3deploy.Source.asset(path.resolve(props.webDistPath));
+
+    const deployAssets = new s3deploy.BucketDeployment(this, "DeployAssets", {
+      sources: [webAssets],
       destinationBucket: this.bucket,
+      exclude: ["index.html"],
+      cacheControl: [s3deploy.CacheControl.fromString("public, max-age=31536000, immutable")],
+    });
+
+    const deployIndex = new s3deploy.BucketDeployment(this, "DeployIndex", {
+      sources: [webAssets],
+      destinationBucket: this.bucket,
+      exclude: ["*"],
+      include: ["index.html"],
+      // This deployment's source view is scoped to index.html alone; pruning
+      // here would delete every hashed asset DeployAssets just uploaded.
+      prune: false,
+      cacheControl: [s3deploy.CacheControl.fromString("no-cache")],
       distribution: this.distribution,
       distributionPaths: ["/*"],
     });
+    // Upload the hashed assets before publishing the index.html that
+    // references them.
+    deployIndex.node.addDependency(deployAssets);
   }
 }

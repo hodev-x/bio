@@ -4,11 +4,11 @@ import { Template, Match } from "aws-cdk-lib/assertions";
 import { ContentTables } from "../lib/constructs/content-tables.js";
 import { ApiLambda } from "../lib/constructs/api-lambda.js";
 
-function synth() {
+function synth(originVerifyParam?: string) {
   const app = new App();
   const stack = new Stack(app, "A", { env: { account: "123456789012", region: "us-east-1" } });
   const tables = new ContentTables(stack, "Tables", { tableNamePrefix: "bio-test" });
-  new ApiLambda(stack, "Api", { tables, envName: "test", rpId: "staging.danielhodeta.com" });
+  new ApiLambda(stack, "Api", { tables, envName: "test", rpId: "staging.danielhodeta.com", originVerifyParam });
   return Template.fromStack(stack);
 }
 
@@ -31,6 +31,17 @@ describe("ApiLambda", () => {
         Variables: Match.objectLike({
           TABLE_POSTS: Match.anyValue(),
           TABLE_PROFILE: Match.anyValue(),
+        }),
+      }),
+    });
+  });
+
+  it("sets ORIGIN_VERIFY_SECRET from an SSM dynamic reference when originVerifyParam is passed", () => {
+    const t = synth("/bio/staging/origin-verify");
+    t.hasResourceProperties("AWS::Lambda::Function", {
+      Environment: Match.objectLike({
+        Variables: Match.objectLike({
+          ORIGIN_VERIFY_SECRET: "{{resolve:ssm:/bio/staging/origin-verify}}",
         }),
       }),
     });
