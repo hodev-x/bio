@@ -11,7 +11,8 @@ export function Experience({ items }: { items: Item[] }) {
           <li key={String(e.id)}>
             <span className="when">{fmtRange(String(e.startDate), e.endDate as string | undefined)}</span>
             <div className="what">
-              <strong>{String(e.role)}</strong> <span className="meta">{String(e.company)}</span>
+              <strong>{String(e.role)}</strong> <span className="meta">{String(e.company)}{typeof e.team === "string" && e.team ? ` · ${e.team}` : ""}</span>
+              {typeof e.description === "string" && e.description && <p>{e.description}</p>}
               {Array.isArray(e.highlights) && e.highlights.length > 0 && <ul>{(e.highlights as string[]).map((h) => <li key={h}>{h}</li>)}</ul>}
               <TechChips tech={e.tech as Record<string, unknown> | undefined} />
             </div>
