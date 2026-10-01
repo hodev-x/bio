@@ -18,24 +18,39 @@ export function ArrayField({ label, values, onChange }: ArrayFieldProps) {
   );
 }
 
-interface RecordFieldProps { label: string; value: Record<string, string>; onChange: (next: Record<string, string>) => void }
+interface RecordFieldProps { label: string; value: Record<string, unknown>; onChange: (next: Record<string, unknown>) => void }
+
+const toText = (v: unknown): string => (typeof v === "string" ? v : JSON.stringify(v));
+
+const fromText = (text: string): unknown => {
+  const t = text.trim();
+  if (t.startsWith("[") || t.startsWith("{")) {
+    try { return JSON.parse(t); } catch { /* keep the string */ }
+  }
+  return text;
+};
+
+const toRows = (value: Record<string, unknown>): [string, string][] =>
+  Object.entries(value).map(([k, v]) => [k, toText(v)]);
+
+const toRecord = (rows: [string, string][]): Record<string, unknown> =>
+  Object.fromEntries(rows.filter(([k]) => k !== "").map(([k, v]) => [k, fromText(v)]));
 
 export function RecordField({ label, value, onChange }: RecordFieldProps) {
   // Rows are internal state so empty-key rows (freshly added, or a key cleared
   // mid-edit) stay visible and editable; only non-empty keys are emitted.
-  const [rows, setRows] = useState<[string, string][]>(() => Object.entries(value));
+  const [rows, setRows] = useState<[string, string][]>(() => toRows(value));
 
   // Resync from the parent (e.g. form.reset after content loads) only when the
   // incoming value differs from what we last emitted — otherwise our own echo
   // would wipe in-progress empty-key rows.
   useEffect(() => {
-    const emitted = Object.fromEntries(rows.filter(([k]) => k !== ""));
-    if (JSON.stringify(emitted) !== JSON.stringify(value)) setRows(Object.entries(value));
+    if (JSON.stringify(toRecord(rows)) !== JSON.stringify(value)) setRows(toRows(value));
   }, [value]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const update = (next: [string, string][]) => {
     setRows(next);
-    onChange(Object.fromEntries(next.filter(([k]) => k !== "")));
+    onChange(toRecord(next));
   };
   return (
     <div className="field">

@@ -34,4 +34,47 @@ describe("entity list page (skills exemplar)", () => {
     expect(patch?.url).toBe("/api/skills/languages");
     expect(JSON.parse(String(patch?.init?.body))).toEqual({ visible: true });
   });
+
+  const renderSkills = (puts: string[]) => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      if (init?.method === "PUT") { puts.push(String(init.body)); return json({ ok: true }); }
+      if (String(input).startsWith("/api/content")) {
+        return json({ profile: null, experience: [], education: [], skills: [], projects: [] });
+      }
+      return json({ ok: true });
+    });
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <MemoryRouter><EntityListPage config={skillsConfig} /></MemoryRouter>
+      </QueryClientProvider>,
+    );
+  };
+
+  it("sends a numeric order and a label", async () => {
+    const puts: string[] = [];
+    renderSkills(puts);
+    await userEvent.type(await screen.findByLabelText("category"), "langs");
+    await userEvent.type(screen.getByLabelText("Label"), "Languages");
+    const order = screen.getByLabelText("Order");
+    expect(order).toHaveAttribute("type", "number");
+    await userEvent.type(order, "2");
+    await userEvent.click(screen.getByRole("button", { name: /\+ add/i }));
+    await userEvent.type(screen.getByLabelText(/items 1/i), "TS");
+    await userEvent.click(screen.getByRole("button", { name: /^save$/i }));
+    await vi.waitFor(() => expect(puts).toHaveLength(1));
+    const body = JSON.parse(puts[0]);
+    expect(body.order).toBe(2);
+    expect(body.label).toBe("Languages");
+  });
+
+  it("omits order when left empty", async () => {
+    const puts: string[] = [];
+    renderSkills(puts);
+    await userEvent.type(await screen.findByLabelText("category"), "langs");
+    await userEvent.click(screen.getByRole("button", { name: /\+ add/i }));
+    await userEvent.type(screen.getByLabelText(/items 1/i), "TS");
+    await userEvent.click(screen.getByRole("button", { name: /^save$/i }));
+    await vi.waitFor(() => expect(puts).toHaveLength(1));
+    expect(JSON.parse(puts[0])).not.toHaveProperty("order");
+  });
 });
