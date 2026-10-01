@@ -13,14 +13,33 @@ const run = (...args: string[]) => {
 };
 
 const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), "cutover-"));
-// Stub `aws`: exits with `code` (non-zero = failure); on 0 answers the zone lookup and returns $STUB_RRS for record listing.
-const stub = (dir: string, code: number) => {
+// Stub `aws`: logs every invocation to <dir>/calls.log, answers per sub-command, and can be told to fail.
+// opts.code: exit immediately with this code. env STUB_FAIL_RRS=1 fails only record listing.
+const stub = (dir: string, code = 0) => {
   const bin = path.join(dir, "bin");
   fs.mkdirSync(bin, { recursive: true });
   const f = path.join(bin, "aws");
-  fs.writeFileSync(f, `#!/usr/bin/env bash\n[ ${code} -ne 0 ] && exit ${code}\ncase "$2" in list-hosted-zones-by-name) echo /hostedzone/ZTEST;; list-resource-record-sets) cat "$STUB_RRS";; esac\n`, { mode: 0o755 });
+  fs.writeFileSync(f, `#!/usr/bin/env bash
+echo "$*" >> "${dir}/calls.log"
+[ ${code} -ne 0 ] && exit ${code}
+case "$2" in
+  list-hosted-zones-by-name) echo /hostedzone/ZTEST ;;
+  change-resource-record-sets)
+    while [ $# -gt 0 ]; do [ "$1" = --change-batch ] && printf '%s' "$2" > "${dir}/batch.json"; shift; done
+    echo /change/C1 ;;
+  list-resource-record-sets)
+    [ -n "$STUB_FAIL_RRS" ] && exit 1
+    case "$*" in
+      *AAAA*) echo "$STUB_AAAA" ;;
+      *"[0].AliasTarget.HostedZoneId"*) echo "$STUB_A_ZONE" ;;
+      *) cat "$STUB_RRS" ;;
+    esac ;;
+esac
+`, { mode: 0o755 });
   return bin;
 };
+const calls = (dir: string) => (fs.existsSync(path.join(dir, "calls.log")) ? fs.readFileSync(path.join(dir, "calls.log"), "utf8") : "");
+const withStub = (dir: string, code = 0) => `${stub(dir, code)}:${process.env.PATH}`;
 const sh = (args: string[], env: Record<string, string> = {}) =>
   spawnSync("bash", [script, ...args], { encoding: "utf8", env: { ...process.env, BIO_DNS_SNAPSHOT: snapshot, ...env } });
 
@@ -68,8 +87,10 @@ describe("cutover-dns.sh", () => {
       { Name: "www.danielhodeta.com.", Type: "CNAME", TTL: 300, ResourceRecords: [{ Value: "d1.cloudfront.net" }] },
     ]));
     for (const snap of [path.join(dir, "missing.json"), empty, cut]) {
-      const r = sh(["apply", "d111.cloudfront.net"], { BIO_DNS_SNAPSHOT: snap, PATH: `${stub(dir, 99)}:${process.env.PATH}` });
+      const r = sh(["apply", "d111.cloudfront.net"], { BIO_DNS_SNAPSHOT: snap, PATH: withStub(dir, 99) });
       expect(r.status).toBe(1);
+      expect(r.stderr).toMatch(/no snapshot at|invalid or already/);
+      expect(calls(dir)).toBe("");
     }
     expect(sh(["apply", "d111.cloudfront.net"], { BIO_DNS_SNAPSHOT: path.join(dir, "missing.json") }).stderr).toContain("no snapshot at");
   });
@@ -77,23 +98,75 @@ describe("cutover-dns.sh", () => {
     const dir = tmp();
     const snap = path.join(dir, "snap.json");
     fs.writeFileSync(snap, "KEEP");
-    const r = sh(["snapshot"], { BIO_DNS_SNAPSHOT: snap, PATH: `${stub(dir, 0)}:${process.env.PATH}` });
+    const r = sh(["snapshot"], { BIO_DNS_SNAPSHOT: snap, PATH: withStub(dir) });
     expect(r.status).toBe(1);
     expect(r.stderr).toContain(snap);
     expect(fs.readFileSync(snap, "utf8")).toBe("KEEP");
   });
-  it("snapshot leaves an existing file unchanged when aws fails", () => {
+  it("snapshot leaves an existing file byte-identical and no temp file when record listing fails", () => {
+    const dir = tmp();
+    const snapDir = path.join(dir, "state");
+    fs.mkdirSync(snapDir);
+    const snap = path.join(snapDir, "snap.json");
+    fs.writeFileSync(snap, "KEEP");
+    const r = sh(["snapshot", "--force"], { BIO_DNS_SNAPSHOT: snap, STUB_FAIL_RRS: "1", PATH: withStub(dir) });
+    expect(r.status).not.toBe(0);
+    expect(calls(dir)).toContain("list-resource-record-sets");
+    expect(fs.readFileSync(snap, "utf8")).toBe("KEEP");
+    expect(fs.readdirSync(snapDir)).toEqual(["snap.json"]);
+  });
+  it("snapshot --force refuses when the live apex is already a CloudFront alias", () => {
     const dir = tmp();
     const snap = path.join(dir, "snap.json");
     fs.writeFileSync(snap, "KEEP");
-    const r = sh(["snapshot", "--force"], { BIO_DNS_SNAPSHOT: snap, PATH: `${stub(dir, 1)}:${process.env.PATH}` });
-    expect(r.status).not.toBe(0);
+    const rrs = path.join(dir, "rrs.json");
+    fs.writeFileSync(rrs, JSON.stringify([
+      { Name: "danielhodeta.com.", Type: "A", AliasTarget: { HostedZoneId: "Z2FDTNDATAQYW2", DNSName: "d1.cloudfront.net." } },
+      { Name: "www.danielhodeta.com.", Type: "CNAME", TTL: 300, ResourceRecords: [{ Value: "d1.cloudfront.net" }] },
+    ]));
+    const r = sh(["snapshot", "--force"], { BIO_DNS_SNAPSHOT: snap, STUB_RRS: rrs, PATH: withStub(dir) });
+    expect(r.status).toBe(1);
+    expect(r.stderr).toContain("already cut over");
     expect(fs.readFileSync(snap, "utf8")).toBe("KEEP");
+  });
+  describe("live rollback (stub aws)", () => {
+    const cfAlias = { HostedZoneId: "Z2FDTNDATAQYW2", DNSName: "d1.cloudfront.net.", EvaluateTargetHealth: false };
+    const live = (env: Record<string, string>) => {
+      const dir = tmp();
+      const r = sh(["rollback"], { PATH: withStub(dir), ...env });
+      const batchFile = path.join(dir, "batch.json");
+      const actions = fs.existsSync(batchFile) ? (JSON.parse(fs.readFileSync(batchFile, "utf8")).Changes as Array<{ Action: string }>).map((c) => c.Action) : null;
+      return { r, dir, actions };
+    };
+    it("aborts without submitting when the apex is not cut over", () => {
+      const { r, dir } = live({ STUB_A_ZONE: "None", STUB_AAAA: "null" });
+      expect(r.status).toBe(1);
+      expect(r.stderr).toContain("not cut over");
+      expect(calls(dir)).not.toContain("change-resource-record-sets");
+    });
+    it("does not delete a non-alias AAAA", () => {
+      const aaaa = JSON.stringify({ Name: "danielhodeta.com.", Type: "AAAA", TTL: 300, ResourceRecords: [{ Value: "2001:db8::1" }] });
+      const { r, actions } = live({ STUB_A_ZONE: "Z2FDTNDATAQYW2", STUB_AAAA: aaaa });
+      expect(r.status, r.stderr).toBe(0);
+      expect(actions).toEqual(["UPSERT", "UPSERT"]);
+    });
+    it("deletes the CloudFront alias AAAA", () => {
+      const aaaa = JSON.stringify({ Name: "danielhodeta.com.", Type: "AAAA", AliasTarget: cfAlias });
+      const { r, actions } = live({ STUB_A_ZONE: "Z2FDTNDATAQYW2", STUB_AAAA: aaaa });
+      expect(r.status, r.stderr).toBe(0);
+      expect(actions).toEqual(["UPSERT", "DELETE", "UPSERT"]);
+    });
+  });
+  it("rejects flags and arguments that do not apply to the subcommand", () => {
+    expect(sh(["snapshot", "--print"]).status).toBe(2);
+    expect(sh(["apply", "--force", "d1.cloudfront.net"]).status).toBe(2);
+    expect(sh(["snapshot", "d1.cloudfront.net"]).status).toBe(2);
+    expect(sh(["preflight", "--print"]).status).toBe(2);
   });
   it("snapshot saves valid pre-cutover records via a stubbed aws", () => {
     const dir = tmp();
     const snap = path.join(dir, "sub", "snap.json");
-    const r = sh(["snapshot"], { BIO_DNS_SNAPSHOT: snap, STUB_RRS: snapshot, PATH: `${stub(dir, 0)}:${process.env.PATH}` });
+    const r = sh(["snapshot"], { BIO_DNS_SNAPSHOT: snap, STUB_RRS: snapshot, PATH: withStub(dir) });
     expect(r.status, r.stderr).toBe(0);
     expect(r.stdout).toContain(snap);
     expect(JSON.parse(fs.readFileSync(snap, "utf8"))).toHaveLength(2);
