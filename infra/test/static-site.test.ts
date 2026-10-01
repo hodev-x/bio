@@ -17,6 +17,38 @@ function synthApex() {
   return Template.fromStack(stack);
 }
 
+function synthApexNoDns() {
+  const app = new App();
+  const stack = new Stack(app, "S3", { env: { account: "123456789012", region: "us-east-1" } });
+  new StaticSite(stack, "Site", {
+    domainName: "danielhodeta.com",
+    zoneName: "danielhodeta.com",
+    includeWww: true,
+    createDnsRecords: false,
+    webDistPath: "../web/dist",
+  });
+  return Template.fromStack(stack);
+}
+
+describe("StaticSite — createDnsRecords: false", () => {
+  it("creates no Route53 record sets", () => {
+    synthApexNoDns().resourceCountIs("AWS::Route53::RecordSet", 0);
+  });
+
+  it("still puts both names on the certificate and the distribution", () => {
+    const t = synthApexNoDns();
+    t.hasResourceProperties("AWS::CertificateManager::Certificate", {
+      DomainName: "danielhodeta.com",
+      SubjectAlternativeNames: ["www.danielhodeta.com"],
+    });
+    t.hasResourceProperties("AWS::CloudFront::Distribution", {
+      DistributionConfig: Match.objectLike({
+        Aliases: Match.arrayWith(["danielhodeta.com", "www.danielhodeta.com"]),
+      }),
+    });
+  });
+});
+
 function synthSubdomain() {
   const app = new App();
   const stack = new Stack(app, "S2", { env: { account: "123456789012", region: "us-east-1" } });
