@@ -10,3 +10,4 @@ docs/
 .superpowers/
 .worktrees/
 .omc/
+infra/scripts/.dns-snapshot.json

@@ -1,0 +1,4 @@
+[
+  { "Name": "danielhodeta.com.", "Type": "A", "TTL": 300, "ResourceRecords": [{ "Value": "192.0.2.10" }] },
+  { "Name": "www.danielhodeta.com.", "Type": "CNAME", "TTL": 300, "ResourceRecords": [{ "Value": "old.example.net" }] }
+]
