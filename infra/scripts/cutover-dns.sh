@@ -2,19 +2,65 @@
 # Switches danielhodeta.com + www between the previous host and the prod CloudFront
 # distribution in ONE Route53 change batch (atomic: no moment without a record).
 #   cutover-dns.sh preflight
-#   cutover-dns.sh snapshot                       # saves current apex A + www CNAME
+#   cutover-dns.sh snapshot [--force]             # saves current apex A + www CNAME
 #   cutover-dns.sh apply    [--print] <dist-domain>
-#   cutover-dns.sh rollback [--print] <dist-domain>
+#   cutover-dns.sh rollback [--print] [<dist-domain>]   # dist-domain required only with --print
 # Needs: aws CLI with Route53 rights (AWS_PROFILE), python3. --print renders the batch
 # and exits without calling AWS. The prod stack deliberately does not own these records.
+# Snapshot lives outside the repo: ${XDG_STATE_HOME:-~/.local/state}/bio/dns-snapshot.json
+# (override with BIO_DNS_SNAPSHOT).
 set -euo pipefail
 APEX="danielhodeta.com."
 WWW="www.danielhodeta.com."
-SNAP="${BIO_DNS_SNAPSHOT:-$(cd "$(dirname "$0")" && pwd)/.dns-snapshot.json}"
+SNAP="${BIO_DNS_SNAPSHOT:-${XDG_STATE_HOME:-$HOME/.local/state}/bio/dns-snapshot.json}"
+
+die() { echo "$1" >&2; exit "${2:-1}"; }
+usage() { die "usage: $0 {preflight|snapshot [--force]|apply [--print] <dist-domain>|rollback [--print] [<dist-domain>]}" 2; }
+
+cmd="${1:-}"; [[ $# -gt 0 ]] && shift
+print=false; force=false; dist=""
+for a in "$@"; do
+  case "$a" in
+    --print) print=true ;;
+    --force) force=true ;;
+    -*) usage ;;
+    *) [[ -z "$dist" ]] || usage; dist="$a" ;;
+  esac
+done
+if [[ -n "$dist" ]]; then
+  [[ "$dist" =~ ^d[a-z0-9]+\.cloudfront\.net\.?$ ]] || die "invalid CloudFront domain: $dist" 2
+fi
 
 zone_id() {
-  aws route53 list-hosted-zones-by-name --dns-name "$APEX" --max-items 1 \
-    --query "HostedZones[?Name=='$APEX'].Id | [0]" --output text | sed 's#/hostedzone/##'
+  local z
+  z="$(aws route53 list-hosted-zones-by-name --dns-name "$APEX" --max-items 1 \
+    --query "HostedZones[?Name=='$APEX' && Config.PrivateZone==\`false\`].Id | [0]" --output text | sed 's#/hostedzone/##')"
+  if [[ -z "$z" || "$z" == "None" || "$z" == "null" ]]; then
+    echo "no public hosted zone found for $APEX" >&2; return 1
+  fi
+  echo "$z"
+}
+
+# exit 0 = usable pre-cutover snapshot; 3 = apex A already a CloudFront alias; 1 = invalid
+check_snapshot() { python3 - "$1" <<'PY'
+import json, sys
+try:
+    snap = json.load(open(sys.argv[1]))
+    a = [r for r in snap if r.get("Name") == "danielhodeta.com." and r.get("Type") == "A"]
+    c = [r for r in snap if r.get("Name") == "www.danielhodeta.com." and r.get("Type") == "CNAME"]
+except Exception:
+    sys.exit(1)
+if len(a) != 1 or len(c) != 1:
+    sys.exit(1)
+if a[0].get("AliasTarget", {}).get("HostedZoneId") == "Z2FDTNDATAQYW2":
+    sys.exit(3)
+PY
+}
+
+require_snapshot() {
+  [[ -f "$SNAP" ]] || die "no snapshot at $SNAP - run 'snapshot' before 'apply'"
+  local rc=0; check_snapshot "$SNAP" || rc=$?
+  [[ $rc -eq 0 ]] || die "snapshot at $SNAP is invalid or already a CloudFront cutover - not usable for rollback"
 }
 
 apply_batch() { python3 - "$1" <<'PY'
@@ -29,53 +75,88 @@ print(json.dumps({"Comment": "bio cutover to CloudFront", "Changes": [
 PY
 }
 
-rollback_batch() { python3 - "$1" "$SNAP" <<'PY'
+# args: snapshot, dist-domain (print mode) or "", live AAAA record json or ""
+rollback_batch() { python3 - "$1" "$2" "$3" <<'PY'
 import json, sys
-d, snap = sys.argv[1].rstrip("."), json.load(open(sys.argv[2]))
+snap = json.load(open(sys.argv[1]))
+d, live = sys.argv[2].rstrip("."), sys.argv[3]
 by = {(r["Name"], r["Type"]): r for r in snap}
 a, cname = by[("danielhodeta.com.", "A")], by[("www.danielhodeta.com.", "CNAME")]
-alias = {"HostedZoneId": "Z2FDTNDATAQYW2", "DNSName": d + ".", "EvaluateTargetHealth": False}
-print(json.dumps({"Comment": "bio rollback to previous host", "Changes": [
-  {"Action": "UPSERT", "ResourceRecordSet": a},
-  {"Action": "DELETE", "ResourceRecordSet": {"Name": "danielhodeta.com.", "Type": "AAAA", "AliasTarget": alias}},
-  {"Action": "UPSERT", "ResourceRecordSet": cname},
-]}))
+changes = [{"Action": "UPSERT", "ResourceRecordSet": a}]
+if live:
+    aaaa = json.loads(live)
+    if aaaa:
+        changes.append({"Action": "DELETE", "ResourceRecordSet": aaaa})
+else:
+    alias = {"HostedZoneId": "Z2FDTNDATAQYW2", "DNSName": d + ".", "EvaluateTargetHealth": False}
+    changes.append({"Action": "DELETE", "ResourceRecordSet": {"Name": "danielhodeta.com.", "Type": "AAAA", "AliasTarget": alias}})
+changes.append({"Action": "UPSERT", "ResourceRecordSet": cname})
+print(json.dumps({"Comment": "bio rollback to previous host", "Changes": changes}))
 PY
 }
 
-submit() {
-  local batch; batch="$(cat)"
-  local id; id="$(aws route53 change-resource-record-sets --hosted-zone-id "$(zone_id)" --change-batch "$batch" --query ChangeInfo.Id --output text)"
+submit() { # args: zone-id, batch
+  local id
+  id="$(aws route53 change-resource-record-sets --hosted-zone-id "$1" --change-batch "$2" --query ChangeInfo.Id --output text)"
   echo "submitted $id; waiting for INSYNC..."
   aws route53 wait resource-record-sets-changed --id "$id"
   echo "INSYNC"
 }
 
-cmd="${1:-}"; shift || true
-print=false; if [[ "${1:-}" == "--print" ]]; then print=true; shift; fi
 case "$cmd" in
   preflight)
-    z="$(zone_id)"
+    z="$(zone_id)" || exit 1
     aws route53 list-resource-record-sets --hosted-zone-id "$z" \
       --query "ResourceRecordSets[?Name=='$APEX' || Name=='$WWW'].[Name,Type,TTL,ResourceRecords[0].Value,AliasTarget.DNSName]" --output table
     caa="$(aws route53 list-resource-record-sets --hosted-zone-id "$z" --query "ResourceRecordSets[?Name=='$APEX' && Type=='CAA'].ResourceRecords[].Value" --output text)"
-    if [[ -n "$caa" && "$caa" != *amazon.com* && "$caa" != *amazontrust.com* ]]; then
-      echo "FAIL: CAA on $APEX does not allow Amazon ($caa) - ACM cannot issue the certificate" >&2; exit 1
+    if [[ -n "$caa" ]] && ! printf '%s\n' "$caa" | tr '\t' '\n' | grep -Eq '^[0-9]+ issue "(amazon\.com|amazontrust\.com)[";]'; then
+      die "FAIL: CAA on $APEX has no 'issue' entry for Amazon ($caa) - ACM cannot issue the certificate"
     fi
+    aaaa="$(aws route53 list-resource-record-sets --hosted-zone-id "$z" --query "ResourceRecordSets[?Name=='$APEX' && Type=='AAAA' && !AliasTarget].Name" --output text)"
+    [[ -z "$aaaa" ]] || echo "WARN: $APEX has a non-alias AAAA record; rollback will not restore it" >&2
+    wwwaddr="$(aws route53 list-resource-record-sets --hosted-zone-id "$z" --query "ResourceRecordSets[?Name=='$WWW' && (Type=='A' || Type=='AAAA')].Type" --output text)"
+    [[ -z "$wwwaddr" ]] || echo "WARN: $WWW is not a CNAME (has $wwwaddr); apply would fail atomically" >&2
     echo "preflight ok" ;;
   snapshot)
-    aws route53 list-resource-record-sets --hosted-zone-id "$(zone_id)" \
-      --query "ResourceRecordSets[?(Name=='$APEX' && Type=='A') || (Name=='$WWW' && Type=='CNAME')]" --output json > "$SNAP"
+    [[ -z "$dist" ]] || usage
+    if [[ -e "$SNAP" && "$force" != true ]]; then
+      die "snapshot already exists at $SNAP - refusing to overwrite (use --force to replace)"
+    fi
+    z="$(zone_id)" || exit 1
+    mkdir -p "$(dirname "$SNAP")"
+    tmp="$(mktemp "$(dirname "$SNAP")/.dns-snapshot.XXXXXX")"
+    trap 'rm -f "$tmp"' EXIT
+    aws route53 list-resource-record-sets --hosted-zone-id "$z" \
+      --query "ResourceRecordSets[?(Name=='$APEX' && Type=='A') || (Name=='$WWW' && Type=='CNAME')]" --output json > "$tmp"
+    rc=0; check_snapshot "$tmp" || rc=$?
+    [[ $rc -ne 3 ]] || die "apex A is already a CloudFront alias - already cut over; keep the existing snapshot"
+    [[ $rc -eq 0 ]] || die "live records are not an apex A + www CNAME pair - not saving a snapshot"
+    mv "$tmp" "$SNAP"
     echo "saved $SNAP" ;;
   apply)
-    [[ -n "${1:-}" ]] || { echo "usage: $0 apply [--print] <dist-domain>" >&2; exit 2; }
-    if $print; then apply_batch "$1"; else
-      [[ -f "$SNAP" ]] || { echo "no snapshot at $SNAP - run 'snapshot' before 'apply'" >&2; exit 1; }
-      apply_batch "$1" | submit
+    [[ -n "$dist" ]] || usage
+    if $print; then apply_batch "$dist"; else
+      require_snapshot
+      z="$(zone_id)" || exit 1
+      batch="$(apply_batch "$dist")" || die "failed to build change batch"
+      [[ -n "$batch" ]] || die "empty change batch"
+      submit "$z" "$batch"
     fi ;;
   rollback)
-    [[ -n "${1:-}" ]] || { echo "usage: $0 rollback [--print] <dist-domain>" >&2; exit 2; }
-    [[ -f "$SNAP" ]] || { echo "no snapshot at $SNAP - run 'snapshot' before 'apply'" >&2; exit 1; }
-    if $print; then rollback_batch "$1"; else rollback_batch "$1" | submit; fi ;;
-  *) echo "usage: $0 {preflight|snapshot|apply|rollback} [--print] [dist-domain]" >&2; exit 2 ;;
+    require_snapshot
+    if $print; then
+      [[ -n "$dist" ]] || die "rollback --print needs <dist-domain>" 2
+      batch="$(rollback_batch "$SNAP" "$dist" "")" || die "failed to build change batch"
+      [[ -n "$batch" ]] || die "empty change batch"
+      echo "$batch"
+    else
+      z="$(zone_id)" || exit 1
+      live="$(aws route53 list-resource-record-sets --hosted-zone-id "$z" \
+        --query "ResourceRecordSets[?Name=='$APEX' && Type=='AAAA'] | [0]" --output json)"
+      [[ -n "$live" ]] || die "could not read live AAAA record"
+      batch="$(rollback_batch "$SNAP" "" "$live")" || die "failed to build change batch"
+      [[ -n "$batch" ]] || die "empty change batch"
+      submit "$z" "$batch"
+    fi ;;
+  *) usage ;;
 esac
