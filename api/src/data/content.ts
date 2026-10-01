@@ -33,6 +33,14 @@ async function scanAll(ddb: DynamoDBDocumentClient, table: string): Promise<Item
 const byDateDesc = (field: string) => (a: Item, b: Item) =>
   String(b[field] ?? "").localeCompare(String(a[field] ?? ""));
 
+// Explicit display order first; items without one go last, then by key for a stable result.
+const byOrderThenKey = (key: string) => (a: Item, b: Item) => {
+  const oa = typeof a.order === "number" ? a.order : Number.POSITIVE_INFINITY;
+  const ob = typeof b.order === "number" ? b.order : Number.POSITIVE_INFINITY;
+  if (oa !== ob) return oa - ob;
+  return String(a[key] ?? "").localeCompare(String(b[key] ?? ""));
+};
+
 export async function getSiteContent(
   ddb: DynamoDBDocumentClient,
   opts: { includeHidden?: boolean } = {},
@@ -49,8 +57,8 @@ export async function getSiteContent(
     profile: visibleOnly(profile, includeHidden)[0] ?? null,
     experience: visibleOnly(experience, includeHidden).sort(byDateDesc("startDate")),
     education: visibleOnly(education, includeHidden).sort(byDateDesc("startDate")),
-    skills: visibleOnly(skills, includeHidden),
-    projects: visibleOnly(projects, includeHidden),
+    skills: visibleOnly(skills, includeHidden).sort(byOrderThenKey("category")),
+    projects: visibleOnly(projects, includeHidden).sort(byOrderThenKey("id")),
   };
 }
 
