@@ -69,4 +69,23 @@ describe("run", () => {
       .rejects.toThrow(/\/api\/profile.*validation failed/);
     expect(fetchImpl).toHaveBeenCalledTimes(2);
   });
+
+  it("rejects on a failed token exchange and makes no PUT", async () => {
+    const fetchImpl = vi.fn(async () => res(401, { error: "no" }));
+    await expect(run({ base: "https://x", from: dir, dryRun: false, apiKey: "k", fetchImpl: fetchImpl as unknown as typeof fetch, log: () => {} }))
+      .rejects.toThrow(/token exchange failed/);
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it("stops after a 401 on the third PUT", async () => {
+    let puts = 0;
+    const fetchImpl = vi.fn(async (url: string | URL | Request) => {
+      if (String(url).endsWith("/api/auth/token")) return res(200, { accessToken: "T" });
+      puts += 1;
+      return puts === 3 ? res(401, { error: "unauthorized" }) : res(200, {});
+    });
+    await expect(run({ base: "https://x", from: dir, dryRun: false, apiKey: "k", fetchImpl: fetchImpl as unknown as typeof fetch, log: () => {} }))
+      .rejects.toThrow(/\/api\/experience\/co-intern/);
+    expect(fetchImpl).toHaveBeenCalledTimes(4);
+  });
 });

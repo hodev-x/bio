@@ -44,4 +44,20 @@ describe("mapContent", () => {
     const o = old(); (o.experience[0] as Record<string, unknown>).surprise = 1;
     expect(() => mapContent(o)).toThrow(/experience co-eng: unknown field\(s\) surprise/);
   });
+  it("rejects skill categories that collapse to the same slug", () => {
+    const o = old(); o.skills = [{ category: "Frameworks & Tools", items: [] }, { category: "Frameworks and Tools", items: [] }];
+    expect(() => mapContent(o)).toThrow(/skills frameworks-and-tools: duplicate key/);
+  });
+  it("rejects duplicate experience ids", () => {
+    const o = old(); o.experience[1].id = "co-eng";
+    expect(() => mapContent(o)).toThrow(/experience co-eng: duplicate key/);
+  });
+  it("rejects a skill category that is not a string", () => {
+    const o = old(); o.skills = [{ items: ["x"] }];
+    expect(() => mapContent(o)).toThrow(/skills 0: category must be a string/);
+  });
+  it("keeps visible: false", () => {
+    const o = old(); o.education[0].visible = false;
+    expect(mapContent(o).education[0].visible).toBe(false);
+  });
 });

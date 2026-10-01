@@ -65,7 +65,8 @@ export function mapContent(old: OldContent): NewContent {
   });
 
   const skills = old.skills.map((s, i) => {
-    checkKeys("skills", s, String(s.category));
+    if (typeof s.category !== "string") throw new Error(`skills ${i}: category must be a string`);
+    checkKeys("skills", s, s.category);
     return SkillsGroupSchema.parse({ category: kebab(String(s.category)), label: String(s.category), items: s.items, order: i });
   });
 
@@ -76,6 +77,18 @@ export function mapContent(old: OldContent): NewContent {
       tech: withStack(pr.tech, pr.technologies), visible: pr.visible, order: i,
     }));
   });
+
+  const dupes = (kind: string, keys: string[]): void => {
+    const seen = new Set<string>();
+    for (const k of keys) {
+      if (seen.has(k)) throw new Error(`${kind} ${k}: duplicate key`);
+      seen.add(k);
+    }
+  };
+  dupes("experience", experience.map((e) => e.id));
+  dupes("education", education.map((e) => e.id));
+  dupes("skills", skills.map((s) => s.category));
+  dupes("projects", projects.map((p) => p.id));
 
   return { profile, experience, education, skills, projects };
 }
