@@ -6,7 +6,7 @@
 #   cutover-dns.sh prepare  [--print] [--undo]    # before the prod deploy: www CNAME -> apex (undo restores snapshot)
 #   cutover-dns.sh apply    [--print] <dist-domain>
 #   cutover-dns.sh rollback [--print] [<dist-domain>]   # dist-domain required only with --print
-# Needs: aws CLI with Route53 rights (AWS_PROFILE), python3. --print renders the batch
+# Needs: aws CLI with Route53 rights (AWS_PROFILE), python3, dig (preflight). --print renders the batch
 # and exits without calling AWS. The prod stack deliberately does not own these records.
 # Snapshot lives outside the repo: ${XDG_STATE_HOME:-~/.local/state}/bio/dns-snapshot.json
 # (override with BIO_DNS_SNAPSHOT).
@@ -119,6 +119,17 @@ print(json.dumps({"Comment": "bio rollback to previous host", "Changes": changes
 PY
 }
 
+# Effective CAA as seen by public resolvers (follows CNAMEs): FAIL if issue entries exist but none allow Amazon.
+# args: name (no trailing dot), failure hint
+check_effective_caa() {
+  local out issue
+  out="$(dig +short CAA "$1")" || die "dig failed for CAA $1"
+  issue="$(printf '%s\n' "$out" | grep -E '^[0-9]+ issue "' || true)"
+  if [[ -n "$issue" ]] && ! grep -Eq '"(amazon\.com|amazontrust\.com|awstrust\.com|amazonaws\.com)[";]' <<<"$issue"; then
+    die "FAIL: effective CAA for $1 has no 'issue' entry for Amazon ($(tr '\n' ' ' <<<"$issue"))- ACM cannot issue the certificate$2"
+  fi
+}
+
 submit() { # args: zone-id, batch
   local id
   id="$(aws route53 change-resource-record-sets --hosted-zone-id "$1" --change-batch "$2" --query ChangeInfo.Id --output text)"
@@ -129,6 +140,7 @@ submit() { # args: zone-id, batch
 
 case "$cmd" in
   preflight)
+    command -v dig >/dev/null || die "dig is required for the effective CAA check (install dnsutils / bind-utils)"
     z="$(zone_id)" || exit 1
     aws route53 list-resource-record-sets --hosted-zone-id "$z" \
       --query "ResourceRecordSets[?Name=='$APEX' || Name=='$WWW'].[Name,Type,TTL,ResourceRecords[0].Value,AliasTarget.DNSName]" --output table
@@ -141,6 +153,8 @@ case "$cmd" in
     [[ -z "$aaaa" ]] || echo "WARN: $APEX has a non-alias AAAA record; rollback will not restore it" >&2
     wwwaddr="$(aws route53 list-resource-record-sets --hosted-zone-id "$z" --query "ResourceRecordSets[?Name=='$WWW' && Type!='CNAME'].Type" --output text)"
     [[ -z "$wwwaddr" ]] || echo "WARN: $WWW has non-CNAME records ($wwwaddr); apply would fail atomically" >&2
+    check_effective_caa "${APEX%.}" ""
+    check_effective_caa "${WWW%.}" " - run 'cutover-dns.sh prepare' and wait at least 300 s (TTL) before the prod deploy"
     echo "preflight ok" ;;
   snapshot)
     if [[ -e "$SNAP" && "$force" != true ]]; then

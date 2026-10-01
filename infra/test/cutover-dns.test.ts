@@ -225,6 +225,60 @@ describe("cutover-dns.sh", () => {
       expect(sh(["apply", "--undo", "d1.cloudfront.net"]).status).toBe(2);
     });
   });
+  describe("preflight effective CAA (stub aws + dig)", () => {
+    const preflight = (digApex: string, digWww: string, extra: Record<string, string> = {}) => {
+      const dir = tmp();
+      const bin = stub(dir);
+      fs.writeFileSync(path.join(bin, "dig"), `#!/usr/bin/env bash
+echo "$*" >> "${dir}/dig.log"
+case "$3" in
+  www.danielhodeta.com) printf '%s' "$STUB_DIG_WWW" ;;
+  danielhodeta.com) printf '%s' "$STUB_DIG_APEX" ;;
+esac
+`, { mode: 0o755 });
+      const r = sh(["preflight"], { PATH: `${bin}:${process.env.PATH}`, STUB_RRS: snapshot, STUB_AAAA: "", STUB_DIG_APEX: digApex, STUB_DIG_WWW: digWww, ...extra });
+      return { r, dir };
+    };
+    it("fails for www with a foreign-CA set and hints at prepare", () => {
+      const { r } = preflight("", '0 issue "letsencrypt.org"\nold.example.net.\n');
+      expect(r.status).toBe(1);
+      expect(r.stderr).toContain("www.danielhodeta.com");
+      expect(r.stderr).toContain("cutover-dns.sh prepare");
+      expect(r.stderr).toContain("300");
+    });
+    it("passes when public DNS has no CAA for either name", () => {
+      const { r, dir } = preflight("", "old.example.net.\n");
+      expect(r.status, r.stderr).toBe(0);
+      expect(fs.readFileSync(path.join(dir, "dig.log"), "utf8")).toContain("+short CAA danielhodeta.com");
+    });
+    it("passes when the apex set includes amazon.com alongside another CA", () => {
+      const { r } = preflight('0 issue "letsencrypt.org"\n0 issue "amazon.com"\n', "");
+      expect(r.status, r.stderr).toBe(0);
+    });
+    it("fails when only issuewild allows Amazon", () => {
+      const { r } = preflight('0 issue "letsencrypt.org"\n0 issuewild "amazon.com"\n', "");
+      expect(r.status).toBe(1);
+      expect(r.stderr).toContain("danielhodeta.com");
+    });
+    it("accepts an Amazon value with parameters", () => {
+      const { r } = preflight("", '0 issue "amazonaws.com; account=1"\n');
+      expect(r.status, r.stderr).toBe(0);
+    });
+    it("dies clearly when dig is missing", () => {
+      const dir = tmp();
+      const bin = stub(dir);
+      // minimal PATH with only the stub aws plus the tools the script needs, but no dig
+      const tools = path.join(dir, "tools");
+      fs.mkdirSync(tools);
+      for (const t of ["bash", "python3", "grep", "sed", "tr", "cat", "dirname", "mktemp", "rm", "mv", "mkdir"]) {
+        const p = spawnSync("bash", ["-c", `command -v ${t}`], { encoding: "utf8" }).stdout.trim();
+        if (p) fs.symlinkSync(p, path.join(tools, t));
+      }
+      const r = sh(["preflight"], { PATH: `${bin}:${tools}`, STUB_RRS: snapshot, STUB_AAAA: "" });
+      expect(r.status).toBe(1);
+      expect(r.stderr).toContain("dig");
+    });
+  });
   it("is valid bash", () => {
     expect(spawnSync("bash", ["-n", script]).status).toBe(0);
   });
