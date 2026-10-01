@@ -25,6 +25,15 @@ const res = (status: number, body: unknown) =>
   ({ ok: status >= 200 && status < 300, status, json: async () => body, text: async () => JSON.stringify(body) }) as unknown as Response;
 
 describe("run", () => {
+  it("--env is informational: optional, and logged when given", async () => {
+    const log = vi.fn();
+    await run({ base: "https://x", from: dir, dryRun: true, log });
+    expect(log.mock.calls.join("\n")).not.toContain("env:");
+    const log2 = vi.fn();
+    await run({ base: "https://x", from: dir, dryRun: true, env: "staging", log: log2 });
+    expect(log2.mock.calls[0][0]).toBe("env: staging");
+  });
+
   it("dry-run never fetches and logs the mapped JSON", async () => {
     const fetchImpl = vi.fn();
     const log = vi.fn();

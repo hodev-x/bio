@@ -1,7 +1,7 @@
 /**
  * Writes content exported from the previous site into the bio API.
  *   BIO_API_KEY=<env MCP client secret> pnpm --filter @bio/api exec tsx scripts/migrate-content.ts \
- *     --base https://staging.danielhodeta.com --from <dir with profile/experience/education/skills/projects .json> [--dry-run]
+ *     --base https://staging.danielhodeta.com --from <dir with profile/experience/education/skills/projects .json> [--dry-run] [--env <name>]
  * PUT is full replace, so re-running is safe.
  */
 import { readFile } from "node:fs/promises";
@@ -9,7 +9,7 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { mapContent, type OldContent } from "./content-mapping.js";
 
-export interface RunOptions { base: string; from: string; dryRun: boolean; apiKey?: string; fetchImpl?: typeof fetch; log?: (line: string) => void }
+export interface RunOptions { base: string; from: string; dryRun: boolean; env?: string; apiKey?: string; fetchImpl?: typeof fetch; log?: (line: string) => void }
 
 async function readJson(dir: string, name: string): Promise<unknown> {
   return JSON.parse(await readFile(join(dir, `${name}.json`), "utf8"));
@@ -17,6 +17,7 @@ async function readJson(dir: string, name: string): Promise<unknown> {
 
 export async function run(opts: RunOptions): Promise<{ written: number }> {
   const log = opts.log ?? ((l: string) => console.log(l));
+  if (opts.env) log(`env: ${opts.env}`);
   const old = {
     profile: await readJson(opts.from, "profile"), experience: await readJson(opts.from, "experience"),
     education: await readJson(opts.from, "education"), skills: await readJson(opts.from, "skills"),
@@ -57,8 +58,8 @@ function arg(name: string): string | undefined {
 
 if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
   const base = arg("base"); const from = arg("from");
-  if (!base || !from) { console.error("usage: migrate-content --base <url> --from <dir> [--dry-run]"); process.exit(2); }
-  run({ base, from, dryRun: process.argv.includes("--dry-run"), apiKey: process.env.BIO_API_KEY })
+  if (!base || !from) { console.error("usage: migrate-content --base <url> --from <dir> [--dry-run] [--env <name>]"); process.exit(2); }
+  run({ base, from, dryRun: process.argv.includes("--dry-run"), env: arg("env"), apiKey: process.env.BIO_API_KEY })
     .then(({ written }) => console.log(`done: ${written} entities written`))
     .catch((e: unknown) => { console.error(e instanceof Error ? e.message : e); process.exit(1); });
 }

@@ -1,4 +1,4 @@
-# Manual, gated production deploy. Cuts the apex (danielhodeta.com) over to CloudFront. Configure a 'production' GitHub Environment with required reviewers before using.
+# Manual, gated production deploy of BioStack-prod. DNS moves separately via infra/scripts/cutover-dns.sh. Configure a 'production' GitHub Environment with required reviewers before using.
 
 name: deploy-prod
 

@@ -39,6 +39,14 @@ describe("Home", () => {
     expect(screen.queryByText("frameworks-and-tools")).toBeNull();
     expect(screen.queryByText("profile-tech")).toBeNull();
   });
+  it("omits the subtitle and avatar when the profile lacks those fields", async () => {
+    const bare = { ...content, profile: { id: "me", name: "Daniel Hodeta", tagline: "Builder of small useful things", about: "Hi.", socials: {}, visible: true } };
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (u) => (String(u).startsWith("/api/posts") ? json(posts) : json(bare)));
+    const { container } = ui();
+    await screen.findByRole("heading", { level: 1, name: "Daniel Hodeta" });
+    expect(container.querySelector(".subtitle")).toBeNull();
+    expect(container.querySelector(".hero img")).toBeNull();
+  });
   it("hides tech until dev mode is on", async () => {
     vi.spyOn(globalThis, "fetch").mockImplementation(async (u) => (String(u).startsWith("/api/posts") ? json(posts) : json(content)));
     ui();

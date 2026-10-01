@@ -37,8 +37,9 @@ infra/   AWS CDK (TypeScript, ESM, run via tsx)
   GitHub OIDC (no stored AWS keys), running `cdk deploy` for the foundation + staging stacks.
 - Production is a **manual, gated** workflow (`deploy-prod.yml`, `workflow_dispatch`).
 - Prod's apex/www DNS records are not managed by CloudFormation: `infra/scripts/cutover-dns.sh`
-  (`preflight`, `snapshot`, `apply`, `rollback`) switches them in one Route53 change batch. The prod
-  stack outputs `DistributionDomainName`, the value to pass to it.
+  (`preflight`, `snapshot`, `prepare`, `apply`, `rollback`) switches them in one Route53 change batch. The prod
+  stack outputs `DistributionDomainName`, the value to pass to it. Run its `prepare` step before the
+  prod deploy so the certificate can include www.
 - Infra is two environments from one codebase: `BioStack-staging` / `BioStack-prod`.
 - The SSM parameter `/bio/<env>/origin-verify` must exist before `cdk deploy` for that env
   (`pnpm --filter @bio/api exec tsx scripts/provision-secrets.ts --env <env> --only origin-verify`);

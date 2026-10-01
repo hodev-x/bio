@@ -314,6 +314,13 @@ esac
       }
     });
   });
+  it("live rollback with a positional exits 2 before any aws call", () => {
+    const dir = tmp();
+    const r = sh(["rollback", "d1.cloudfront.net"], { PATH: withStub(dir, 99) });
+    expect(r.status).toBe(2);
+    expect(r.stderr).toContain("usage");
+    expect(calls(dir)).toBe("");
+  });
   it("is valid bash", () => {
     expect(spawnSync("bash", ["-n", script]).status).toBe(0);
   });

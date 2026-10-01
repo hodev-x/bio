@@ -73,7 +73,7 @@ describe("entity schemas", () => {
   });
 });
 
-describe("plan 7 schema additions", () => {
+describe("optional content fields", () => {
   it("profile accepts title/company/team/avatarUrl/tech and still rejects unknown keys", () => {
     const p = ProfileSchema.parse({
       name: "D", tagline: "t", title: "SDE II", company: "Acme", team: "Infra",
