@@ -171,6 +171,60 @@ describe("cutover-dns.sh", () => {
     expect(r.stdout).toContain(snap);
     expect(JSON.parse(fs.readFileSync(snap, "utf8"))).toHaveLength(2);
   });
+  describe("prepare (stub aws)", () => {
+    const wwwApex = { Name: "www.danielhodeta.com.", Type: "CNAME", TTL: 300, ResourceRecords: [{ Value: "danielhodeta.com." }] };
+    it("prepare --print: one batch repointing www CNAME to the apex", () => {
+      const b = run("prepare", "--print");
+      expect(b.Changes).toEqual([{ Action: "UPSERT", ResourceRecordSet: { Name: "www.danielhodeta.com.", Type: "CNAME", TTL: 300, ResourceRecords: [{ Value: "danielhodeta.com" }] } }]);
+    });
+    it("prepare --undo --print: one batch restoring the snapshot www CNAME", () => {
+      const b = run("prepare", "--undo", "--print");
+      expect(b.Changes).toEqual([{ Action: "UPSERT", ResourceRecordSet: { Name: "www.danielhodeta.com.", Type: "CNAME", TTL: 300, ResourceRecords: [{ Value: "old.example.net" }] } }]);
+    });
+    it("prepare with no snapshot exits 1 before any aws call", () => {
+      const dir = tmp();
+      const r = sh(["prepare"], { BIO_DNS_SNAPSHOT: path.join(dir, "missing.json"), PATH: withStub(dir, 99) });
+      expect(r.status).toBe(1);
+      expect(r.stderr).toContain("no snapshot at");
+      expect(calls(dir)).toBe("");
+    });
+    it("live prepare submits one batch", () => {
+      const dir = tmp();
+      const r = sh(["prepare"], { PATH: withStub(dir) });
+      expect(r.status, r.stderr).toBe(0);
+      expect(JSON.parse(fs.readFileSync(path.join(dir, "batch.json"), "utf8")).Changes).toHaveLength(1);
+    });
+    it("live prepare --undo is refused when the apex is a CloudFront alias", () => {
+      const dir = tmp();
+      const r = sh(["prepare", "--undo"], { STUB_A_ZONE: "Z2FDTNDATAQYW2", PATH: withStub(dir) });
+      expect(r.status).toBe(1);
+      expect(r.stderr).toContain("apex is cut over; use rollback");
+      expect(calls(dir)).not.toContain("change-resource-record-sets");
+    });
+    it("live prepare --undo restores when the apex is not cut over", () => {
+      const dir = tmp();
+      const r = sh(["prepare", "--undo"], { STUB_A_ZONE: "None", PATH: withStub(dir) });
+      expect(r.status, r.stderr).toBe(0);
+      expect(JSON.parse(fs.readFileSync(path.join(dir, "batch.json"), "utf8")).Changes[0].ResourceRecordSet.ResourceRecords).toEqual([{ Value: "old.example.net" }]);
+    });
+    it("snapshot refuses when www already points at the apex", () => {
+      for (const value of ["danielhodeta.com", "danielhodeta.com."]) {
+        const dir = tmp();
+        const snap = path.join(dir, "snap.json");
+        const rrs = path.join(dir, "rrs.json");
+        fs.writeFileSync(rrs, JSON.stringify([{ Name: "danielhodeta.com.", Type: "A", TTL: 300, ResourceRecords: [{ Value: "192.0.2.10" }] }, { ...wwwApex, ResourceRecords: [{ Value: value }] }]));
+        const r = sh(["snapshot"], { BIO_DNS_SNAPSHOT: snap, STUB_RRS: rrs, PATH: withStub(dir) });
+        expect(r.status).toBe(1);
+        expect(r.stderr).toContain("www already points at the apex");
+        expect(fs.existsSync(snap)).toBe(false);
+      }
+    });
+    it("validates flags for prepare", () => {
+      expect(sh(["prepare", "d1.cloudfront.net"]).status).toBe(2);
+      expect(sh(["prepare", "--force"]).status).toBe(2);
+      expect(sh(["apply", "--undo", "d1.cloudfront.net"]).status).toBe(2);
+    });
+  });
   it("is valid bash", () => {
     expect(spawnSync("bash", ["-n", script]).status).toBe(0);
   });

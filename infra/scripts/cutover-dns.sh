@@ -3,6 +3,7 @@
 # distribution in ONE Route53 change batch (atomic: no moment without a record).
 #   cutover-dns.sh preflight
 #   cutover-dns.sh snapshot [--force]             # saves current apex A + www CNAME
+#   cutover-dns.sh prepare  [--print] [--undo]    # before the prod deploy: www CNAME -> apex (undo restores snapshot)
 #   cutover-dns.sh apply    [--print] <dist-domain>
 #   cutover-dns.sh rollback [--print] [<dist-domain>]   # dist-domain required only with --print
 # Needs: aws CLI with Route53 rights (AWS_PROFILE), python3. --print renders the batch
@@ -15,22 +16,25 @@ WWW="www.danielhodeta.com."
 SNAP="${BIO_DNS_SNAPSHOT:-${XDG_STATE_HOME:-$HOME/.local/state}/bio/dns-snapshot.json}"
 
 die() { echo "$1" >&2; exit "${2:-1}"; }
-usage() { die "usage: $0 {preflight|snapshot [--force]|apply [--print] <dist-domain>|rollback [--print] [<dist-domain>]}" 2; }
+usage() { die "usage: $0 {preflight|snapshot [--force]|prepare [--print] [--undo]|apply [--print] <dist-domain>|rollback [--print] [<dist-domain>]}" 2; }
 
 cmd="${1:-}"; [[ $# -gt 0 ]] && shift
-print=false; force=false; dist=""
+print=false; force=false; undo=false; dist=""
 for a in "$@"; do
   case "$a" in
     --print) print=true ;;
     --force) force=true ;;
+    --undo) undo=true ;;
     -*) usage ;;
     *) [[ -z "$dist" ]] || usage; dist="$a" ;;
   esac
 done
 case "$cmd" in
-  preflight) { ! $print && ! $force && [[ -z "$dist" ]]; } || usage ;;
-  snapshot) { ! $print && [[ -z "$dist" ]]; } || usage ;;
-  apply|rollback) ! $force || usage ;;
+  preflight) { ! $print && ! $force && ! $undo && [[ -z "$dist" ]]; } || usage ;;
+  snapshot) { ! $print && ! $undo && [[ -z "$dist" ]]; } || usage ;;
+  prepare) { ! $force && [[ -z "$dist" ]]; } || usage ;;
+  apply) { ! $force && ! $undo; } || usage ;;
+  rollback) { ! $force && ! $undo && { $print || [[ -z "$dist" ]]; }; } || usage ;;
 esac
 if [[ -n "$dist" ]]; then
   [[ "$dist" =~ ^d[a-z0-9]+\.cloudfront\.net\.?$ ]] || die "invalid CloudFront domain: $dist" 2
@@ -46,7 +50,8 @@ zone_id() {
   echo "$z"
 }
 
-# exit 0 = usable pre-cutover snapshot; 3 = apex A already a CloudFront alias; 1 = invalid
+# exit 0 = usable pre-cutover snapshot; 3 = apex A already a CloudFront alias;
+# 4 = www CNAME already points at the apex; 1 = invalid
 check_snapshot() { python3 - "$1" <<'PY'
 import json, sys
 try:
@@ -59,6 +64,8 @@ if len(a) != 1 or len(c) != 1:
     sys.exit(1)
 if a[0].get("AliasTarget", {}).get("HostedZoneId") == "Z2FDTNDATAQYW2":
     sys.exit(3)
+if c[0].get("ResourceRecords", [{}])[0].get("Value", "").rstrip(".") == "danielhodeta.com":
+    sys.exit(4)
 PY
 }
 
@@ -77,6 +84,18 @@ print(json.dumps({"Comment": "bio cutover to CloudFront", "Changes": [
   {"Action": "UPSERT", "ResourceRecordSet": {"Name": "danielhodeta.com.", "Type": "AAAA", "AliasTarget": alias}},
   {"Action": "UPSERT", "ResourceRecordSet": {"Name": "www.danielhodeta.com.", "Type": "CNAME", "TTL": 300, "ResourceRecords": [{"Value": d}]}},
 ]}))
+PY
+}
+
+prepare_batch() { python3 - "$1" "$2" <<'PY'
+import json, sys
+if sys.argv[2] == "undo":
+    cname = [r for r in json.load(open(sys.argv[1])) if r["Name"] == "www.danielhodeta.com." and r["Type"] == "CNAME"][0]
+    comment = "bio prepare undo: restore www CNAME"
+else:
+    cname = {"Name": "www.danielhodeta.com.", "Type": "CNAME", "TTL": 300, "ResourceRecords": [{"Value": "danielhodeta.com"}]}
+    comment = "bio prepare: www CNAME to apex"
+print(json.dumps({"Comment": comment, "Changes": [{"Action": "UPSERT", "ResourceRecordSet": cname}]}))
 PY
 }
 
@@ -135,9 +154,24 @@ case "$cmd" in
       --query "ResourceRecordSets[?(Name=='$APEX' && Type=='A') || (Name=='$WWW' && Type=='CNAME')]" --output json > "$tmp"
     rc=0; check_snapshot "$tmp" || rc=$?
     [[ $rc -ne 3 ]] || die "apex A is already a CloudFront alias - already cut over; keep the existing snapshot"
+    [[ $rc -ne 4 ]] || die "www already points at the apex - keep the existing snapshot"
     [[ $rc -eq 0 ]] || die "live records are not an apex A + www CNAME pair - not saving a snapshot"
     mv "$tmp" "$SNAP"
     echo "saved $SNAP" ;;
+  prepare)
+    require_snapshot " - run 'snapshot' before 'prepare'"
+    mode=do; $undo && mode=undo
+    batch="$(prepare_batch "$SNAP" "$mode")" || die "failed to build change batch"
+    [[ -n "$batch" ]] || die "empty change batch"
+    if $print; then echo "$batch"; else
+      z="$(zone_id)" || exit 1
+      if $undo; then
+        apexzone="$(aws route53 list-resource-record-sets --hosted-zone-id "$z" \
+          --query "ResourceRecordSets[?Name=='$APEX' && Type=='A'] | [0].AliasTarget.HostedZoneId" --output text)"
+        [[ "$apexzone" != "Z2FDTNDATAQYW2" ]] || die "apex is cut over; use rollback"
+      fi
+      submit "$z" "$batch"
+    fi ;;
   apply)
     [[ -n "$dist" ]] || usage
     if $print; then apply_batch "$dist"; else
