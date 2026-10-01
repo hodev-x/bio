@@ -23,6 +23,7 @@ const stub = (dir: string, code = 0) => {
 echo "$*" >> "${dir}/calls.log"
 [ ${code} -ne 0 ] && exit ${code}
 case "$2" in
+  list-distributions) cat "$STUB_CF" ;;
   list-hosted-zones-by-name) echo /hostedzone/ZTEST ;;
   change-resource-record-sets)
     while [ $# -gt 0 ]; do [ "$1" = --change-batch ] && printf '%s' "$2" > "${dir}/batch.json"; shift; done
@@ -277,6 +278,40 @@ esac
       const r = sh(["preflight"], { PATH: `${bin}:${tools}`, STUB_RRS: snapshot, STUB_AAAA: "" });
       expect(r.status).toBe(1);
       expect(r.stderr).toContain("dig");
+    });
+  });
+  describe("apply verifies the target distribution (stub aws)", () => {
+    const dist = (over: Record<string, unknown> = {}) => ({ DomainName: "d111.cloudfront.net", Status: "Deployed", Aliases: ["danielhodeta.com", "www.danielhodeta.com"], ...over });
+    const liveApply = (items: unknown, domain = "d111.cloudfront.net.") => {
+      const dir = tmp();
+      const cf = path.join(dir, "cf.json");
+      fs.writeFileSync(cf, JSON.stringify(items));
+      const r = sh(["apply", domain], { STUB_CF: cf, PATH: withStub(dir) });
+      return { r, dir };
+    };
+    it("submits the change when exactly one matching, deployed distribution has both aliases", () => {
+      const { r, dir } = liveApply([dist(), dist({ DomainName: "d222.cloudfront.net" })]);
+      expect(r.status, r.stderr).toBe(0);
+      expect(calls(dir)).toContain("change-resource-record-sets");
+    });
+    it("refuses an InProgress distribution", () => {
+      const { r, dir } = liveApply([dist({ Status: "InProgress" })]);
+      expect(r.status).toBe(1);
+      expect(r.stderr).toContain("InProgress");
+      expect(calls(dir)).not.toContain("change-resource-record-sets");
+    });
+    it("refuses a distribution missing the www alias", () => {
+      const { r, dir } = liveApply([dist({ Aliases: ["danielhodeta.com"] })]);
+      expect(r.status).toBe(1);
+      expect(r.stderr).toContain("www.danielhodeta.com");
+      expect(calls(dir)).not.toContain("change-resource-record-sets");
+    });
+    it("refuses when no distribution matches, including a null listing", () => {
+      for (const items of [[], null, [dist({ DomainName: "d999.cloudfront.net" })]]) {
+        const { r, dir } = liveApply(items);
+        expect(r.status).toBe(1);
+        expect(calls(dir)).not.toContain("change-resource-record-sets");
+      }
     });
   });
   it("is valid bash", () => {

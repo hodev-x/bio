@@ -6,7 +6,7 @@
 #   cutover-dns.sh prepare  [--print] [--undo]    # before the prod deploy: www CNAME -> apex (undo restores snapshot)
 #   cutover-dns.sh apply    [--print] <dist-domain>
 #   cutover-dns.sh rollback [--print] [<dist-domain>]   # dist-domain required only with --print
-# Needs: aws CLI with Route53 rights (AWS_PROFILE), python3, dig (preflight). --print renders the batch
+# Needs: aws CLI with Route53 + CloudFront read rights (AWS_PROFILE), python3, dig (preflight). --print renders the batch
 # and exits without calling AWS. The prod stack deliberately does not own these records.
 # Snapshot lives outside the repo: ${XDG_STATE_HOME:-~/.local/state}/bio/dns-snapshot.json
 # (override with BIO_DNS_SNAPSHOT).
@@ -130,6 +130,28 @@ check_effective_caa() {
   fi
 }
 
+# args: dist-domain. Exactly one distribution with this DomainName, Deployed, aliased for apex and www.
+verify_distribution() {
+  local listing
+  listing="$(aws cloudfront list-distributions \
+    --query 'DistributionList.Items[].{DomainName:DomainName,Status:Status,Aliases:Aliases.Items}' --output json)" \
+    || die "could not list CloudFront distributions"
+  python3 - "$1" "$listing" <<'PY' || exit 1
+import json, sys
+d = sys.argv[1].rstrip(".")
+items = json.loads(sys.argv[2] or "null") or []
+m = [i for i in items if i.get("DomainName") == d]
+if len(m) != 1:
+    sys.exit("expected exactly one distribution with domain %s, found %d" % (d, len(m)))
+i = m[0]
+if i.get("Status") != "Deployed":
+    sys.exit("distribution %s is %s, not Deployed" % (d, i.get("Status")))
+missing = [a for a in ("danielhodeta.com", "www.danielhodeta.com") if a not in (i.get("Aliases") or [])]
+if missing:
+    sys.exit("distribution %s lacks aliases: %s" % (d, ", ".join(missing)))
+PY
+}
+
 submit() { # args: zone-id, batch
   local id
   id="$(aws route53 change-resource-record-sets --hosted-zone-id "$1" --change-batch "$2" --query ChangeInfo.Id --output text)"
@@ -190,6 +212,7 @@ case "$cmd" in
     [[ -n "$dist" ]] || usage
     if $print; then apply_batch "$dist"; else
       require_snapshot " - run 'snapshot' before 'apply'"
+      verify_distribution "$dist"
       z="$(zone_id)" || exit 1
       batch="$(apply_batch "$dist")" || die "failed to build change batch"
       [[ -n "$batch" ]] || die "empty change batch"
