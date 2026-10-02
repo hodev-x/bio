@@ -72,3 +72,30 @@ describe("entity schemas", () => {
     expect(PostPutSchema.safeParse({ slug: "a", title: "t", body: "b", publishedAt: "2026-07-14T00:00:00.000Z" }).success).toBe(true);
   });
 });
+
+describe("optional content fields", () => {
+  it("profile accepts title/company/team/avatarUrl/tech and still rejects unknown keys", () => {
+    const p = ProfileSchema.parse({
+      name: "D", tagline: "t", title: "SDE II", company: "Acme", team: "Infra",
+      avatarUrl: "https://example.com/a.png", tech: { about: ["x"] },
+    });
+    expect(p.title).toBe("SDE II");
+    expect(ProfileSchema.safeParse({ name: "D", tagline: "t", avatarUrl: "not-a-url" }).success).toBe(false);
+    expect(ProfileSchema.safeParse({ name: "D", tagline: "t", yearsExperience: "5+" }).success).toBe(false);
+  });
+  it("experience accepts team and description", () => {
+    const e = ExperienceSchema.parse({ id: "a", role: "r", company: "c", startDate: "2024-01", team: "T", description: "d" });
+    expect(e.description).toBe("d");
+  });
+  it("education defaults highlights to []", () => {
+    expect(EducationSchema.parse({ id: "u", institution: "U", degree: "BS", startDate: "2018" }).highlights).toEqual([]);
+  });
+  it("skills accept label and a non-negative integer order", () => {
+    expect(SkillsGroupSchema.parse({ category: "frameworks-and-tools", label: "Frameworks & Tools", order: 2 }).label).toBe("Frameworks & Tools");
+    expect(SkillsGroupSchema.safeParse({ category: "x", order: -1 }).success).toBe(false);
+    expect(SkillsGroupSchema.safeParse({ category: "x", order: 1.5 }).success).toBe(false);
+  });
+  it("projects accept order", () => {
+    expect(ProjectSchema.parse({ id: "p", title: "P", desc: "d", status: "active", order: 0 }).order).toBe(0);
+  });
+});

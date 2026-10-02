@@ -32,6 +32,20 @@ describe("getSiteContent", () => {
     const content = await getSiteContent(ddb as unknown as DynamoDBDocumentClient, { includeHidden: true });
     expect(content.experience.map((e) => e.id)).toEqual(["h"]);
   });
+
+  it("sorts skills and projects by order, missing order last, ties by key", async () => {
+    // Mock Scan per table: skills unordered, projects with a missing order.
+    ddb.on(ScanCommand, { TableName: "bio-skills" }).resolves({ Items: [
+      { category: "practices", order: 3 }, { category: "aws", order: 1 }, { category: "zeta" }, { category: "languages", order: 0 }, { category: "alpha" },
+    ] });
+    ddb.on(ScanCommand, { TableName: "bio-projects" }).resolves({ Items: [{ id: "b", order: 1 }, { id: "a", order: 0 }, { id: "c" }] });
+    ddb.on(ScanCommand, { TableName: "bio-profile" }).resolves({ Items: [] });
+    ddb.on(ScanCommand, { TableName: "bio-experience" }).resolves({ Items: [] });
+    ddb.on(ScanCommand, { TableName: "bio-education" }).resolves({ Items: [] });
+    const c = await getSiteContent(ddb as unknown as DynamoDBDocumentClient);
+    expect(c.skills.map((s) => s.category)).toEqual(["languages", "aws", "practices", "alpha", "zeta"]);
+    expect(c.projects.map((p) => p.id)).toEqual(["a", "b", "c"]);
+  });
 });
 
 describe("posts", () => {

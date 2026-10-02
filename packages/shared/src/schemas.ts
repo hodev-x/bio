@@ -7,6 +7,8 @@ const slug = z.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, "expected a kebab-ca
 // `tech.*` payloads stay intentionally loose until real content is migrated (spec §3).
 const tech = z.record(z.string(), z.unknown()).optional();
 
+const order = z.number().int().min(0).optional();
+
 export const ProfileSchema = z.object({
   id: z.literal("me").default("me"),
   name: z.string().min(1),
@@ -14,6 +16,11 @@ export const ProfileSchema = z.object({
   about: z.string().optional(),
   socials: z.record(z.string(), z.string().url()).default(() => ({})),
   visible: z.boolean().default(true),
+  title: z.string().min(1).optional(),
+  company: z.string().min(1).optional(),
+  team: z.string().min(1).optional(),
+  avatarUrl: z.string().url().optional(),
+  tech,
 }).strict();
 
 export const ExperienceSchema = z.object({
@@ -25,6 +32,8 @@ export const ExperienceSchema = z.object({
   highlights: z.array(z.string().min(1)).default(() => []),
   tech,
   visible: z.boolean().default(true),
+  team: z.string().min(1).optional(),
+  description: z.string().min(1).optional(),
 }).strict();
 
 export const EducationSchema = z.object({
@@ -34,12 +43,15 @@ export const EducationSchema = z.object({
   startDate: isoDate,
   endDate: isoDate.optional(),
   visible: z.boolean().default(true),
+  highlights: z.array(z.string().min(1)).default(() => []),
 }).strict();
 
 export const SkillsGroupSchema = z.object({
   category: slug,
   items: z.array(z.string().min(1)).default(() => []),
   visible: z.boolean().default(true),
+  label: z.string().min(1).optional(),
+  order,
 }).strict();
 
 export const ProjectSchema = z.object({
@@ -51,6 +63,7 @@ export const ProjectSchema = z.object({
   repo: z.string().url().optional(),
   tech,
   visible: z.boolean().default(true),
+  order,
 }).strict();
 
 export const PostSchema = z.object({

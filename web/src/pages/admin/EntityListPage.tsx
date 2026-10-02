@@ -91,7 +91,16 @@ export function EntityListPage({ config }: { config: EntityConfig }) {
             }
             if (f.kind === "record") {
               return <Controller key={f.name} control={form.control} name={f.name}
-                render={({ field }) => <RecordField label={f.label} value={(field.value ?? {}) as Record<string, string>} onChange={field.onChange} />} />;
+                render={({ field }) => <RecordField label={f.label} value={(field.value ?? {}) as Record<string, unknown>} onChange={field.onChange} />} />;
+            }
+            if (f.kind === "number") {
+              return (
+                <label key={f.name} className="field"><span>{f.label}</span>
+                  <input type="number" min={0} step={1}
+                    {...form.register(f.name, { setValueAs: (v: unknown) => (v === "" || v == null ? undefined : Number(v)) })} />
+                  {err[f.name] && <p className="field-error">{String(err[f.name]?.message)}</p>}
+                </label>
+              );
             }
             return (
               <label key={f.name} className="field"><span>{f.label}</span>

@@ -23,6 +23,8 @@ export interface StaticSiteProps {
   apiOrigin?: string;
   /** SSM parameter NAME (not value) holding the shared origin-verify secret, e.g. "/bio/staging/origin-verify". */
   originVerifyParam?: string;
+  /** Default true. Prod passes false: its apex/www records are switched by infra/scripts/cutover-dns.sh, not CloudFormation. */
+  createDnsRecords?: boolean;
 }
 
 export class StaticSite extends Construct {
@@ -92,12 +94,14 @@ export class StaticSite extends Construct {
       additionalBehaviors,
     });
 
-    const target = route53.RecordTarget.fromAlias(
-      new targets.CloudFrontTarget(this.distribution),
-    );
-    new route53.ARecord(this, "PrimaryA", { zone, target, recordName: domainName });
-    if (includeWww) {
-      new route53.ARecord(this, "WwwA", { zone, target, recordName: wwwName });
+    if (props.createDnsRecords ?? true) {
+      const target = route53.RecordTarget.fromAlias(
+        new targets.CloudFrontTarget(this.distribution),
+      );
+      new route53.ARecord(this, "PrimaryA", { zone, target, recordName: domainName });
+      if (includeWww) {
+        new route53.ARecord(this, "WwwA", { zone, target, recordName: wwwName });
+      }
     }
 
     // index.html references content-hashed asset filenames, so it must never

@@ -47,3 +47,5 @@ pre.shiki { padding: .9rem 1rem; border-radius: 6px; overflow-x: auto; font: .85
 .public .skeleton { height: 1em; background: var(--p-rule); border-radius: 3px; margin: .5rem 0; width: 60%; }
 .public .error { border: 1px solid var(--p-rule); padding: 1rem; border-radius: 6px; }
 @media (max-width: 640px) { .public .timeline li { grid-template-columns: 1fr; gap: .2rem; } }
+.public .hero .avatar { width: 96px; height: 96px; border-radius: 50%; object-fit: cover; margin-bottom: 1rem; }
+.public .hero .subtitle { font: .85rem var(--p-mono); color: var(--p-muted); margin: 0 0 .75rem; }

@@ -1,5 +1,5 @@
 import * as path from "node:path";
-import { Stack, StackProps, Fn, RemovalPolicy } from "aws-cdk-lib";
+import { Stack, StackProps, Fn, RemovalPolicy, CfnOutput } from "aws-cdk-lib";
 import { Construct } from "constructs";
 import { StaticSite } from "./constructs/static-site.js";
 import { ContentTables } from "./constructs/content-tables.js";
@@ -44,13 +44,17 @@ export class BioStack extends Stack {
     });
     const apiOrigin = Fn.select(2, Fn.split("/", api.httpApi.apiEndpoint));
 
-    new StaticSite(this, "Site", {
+    const site = new StaticSite(this, "Site", {
       domainName: siteDomain,
       zoneName: props.zoneDomain,
       includeWww: isProd,
       webDistPath: WEB_DIST_PATH,
       apiOrigin,
       originVerifyParam,
+      createDnsRecords: !isProd,
     });
+
+    new CfnOutput(this, "DistributionDomainName", { value: site.distribution.distributionDomainName });
+    new CfnOutput(this, "DistributionId", { value: site.distribution.distributionId });
   }
 }

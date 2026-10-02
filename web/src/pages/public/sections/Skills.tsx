@@ -8,7 +8,7 @@ export function Skills({ items }: { items: Item[] }) {
       <dl className="skills">
         {items.map((s) => (
           <div key={String(s.category)}>
-            <dt>{String(s.category)}</dt>
+            <dt>{typeof s.label === "string" && s.label ? s.label : String(s.category)}</dt>
             <dd>{Array.isArray(s.items) ? (s.items as string[]).join(", ") : ""}</dd>
           </div>
         ))}

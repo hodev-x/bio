@@ -3,10 +3,10 @@ import { App } from "aws-cdk-lib";
 import { Template } from "aws-cdk-lib/assertions";
 import { BioStack } from "../lib/bio-stack.js";
 
-function synth() {
+function synth(envName: "staging" | "prod" = "staging") {
   const app = new App();
-  const stack = new BioStack(app, "BioStack-staging", {
-    envName: "staging",
+  const stack = new BioStack(app, `BioStack-${envName}`, {
+    envName,
     zoneDomain: "danielhodeta.com",
     env: { account: "123456789012", region: "us-east-1" },
   });
@@ -30,5 +30,18 @@ describe("BioStack", () => {
     t.hasResourceProperties("AWS::DynamoDB::Table", {
       TableName: "bio-staging-posts",
     });
+  });
+
+  it("prod creates no Route53 records and exports distribution outputs", () => {
+    const t = synth("prod");
+    t.resourceCountIs("AWS::Route53::RecordSet", 0);
+    const outputs = t.toJSON().Outputs;
+    expect(outputs).toHaveProperty("DistributionDomainName");
+    expect(outputs).toHaveProperty("DistributionId");
+  });
+
+  it("staging keeps its single DNS record with an unchanged logical id", () => {
+    const records = synth("staging").findResources("AWS::Route53::RecordSet");
+    expect(Object.keys(records)).toEqual(["SitePrimaryAF41F6FE6"]);
   });
 });

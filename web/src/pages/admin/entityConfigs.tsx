@@ -3,6 +3,7 @@ import type { ZodTypeAny } from "zod";
 
 export type FieldSpec =
   | { kind: "text" | "textarea"; name: string; label: string }
+  | { kind: "number"; name: string; label: string }
   | { kind: "array"; name: string; label: string }
   | { kind: "record"; name: string; label: string };
 
@@ -19,8 +20,10 @@ export const experienceConfig: EntityConfig = {
   fields: [
     { kind: "text", name: "role", label: "Role" },
     { kind: "text", name: "company", label: "Company" },
+    { kind: "text", name: "team", label: "Team" },
     { kind: "text", name: "startDate", label: "Start (YYYY-MM)" },
     { kind: "text", name: "endDate", label: "End (YYYY-MM, empty = current)" },
+    { kind: "textarea", name: "description", label: "Description" },
     { kind: "array", name: "highlights", label: "Highlights" },
     { kind: "record", name: "tech", label: "Tech (key → value)" },
   ],
@@ -33,12 +36,17 @@ export const educationConfig: EntityConfig = {
     { kind: "text", name: "degree", label: "Degree" },
     { kind: "text", name: "startDate", label: "Start (YYYY)" },
     { kind: "text", name: "endDate", label: "End (YYYY)" },
+    { kind: "array", name: "highlights", label: "Highlights" },
   ],
 };
 
 export const skillsConfig: EntityConfig = {
   type: "skills", schema: SkillsGroupSchema, keyAttr: "category", titleAttr: "category",
-  fields: [{ kind: "array", name: "items", label: "Items" }],
+  fields: [
+    { kind: "text", name: "label", label: "Label" },
+    { kind: "number", name: "order", label: "Order" },
+    { kind: "array", name: "items", label: "Items" },
+  ],
 };
 
 export const projectsConfig: EntityConfig = {
@@ -49,5 +57,6 @@ export const projectsConfig: EntityConfig = {
     { kind: "text", name: "status", label: "Status" },
     { kind: "text", name: "repo", label: "Repo URL" },
     { kind: "record", name: "tech", label: "Tech (key → value)" },
+    { kind: "number", name: "order", label: "Order" },
   ],
 };
