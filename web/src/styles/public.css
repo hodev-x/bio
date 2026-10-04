@@ -29,10 +29,11 @@ pre.shiki { padding: .9rem 1rem; border-radius: 6px; overflow-x: auto; font: .85
 .public .label { font: .72rem var(--p-mono); letter-spacing: .12em; text-transform: uppercase; color: var(--p-muted); margin: 0 0 1.25rem; }
 .public .hero .tagline { font-family: var(--p-serif); font-size: 1.35rem; color: var(--p-muted); margin: 0 0 1.25rem; }
 .public .timeline { list-style: none; margin: 0; padding: 0; }
-.public .timeline li { display: grid; grid-template-columns: 9.5rem 1fr; gap: 1.25rem; padding: .9rem 0; }
+.public .timeline > li { display: grid; grid-template-columns: 9.5rem 1fr; gap: 1.25rem; padding: .9rem 0; }
 .public .timeline .when { font: .8rem/1.9 var(--p-mono); color: var(--p-muted); }
 .public .timeline .what strong { display: block; font-weight: 600; }
-.public .timeline ul { margin: .4rem 0 0; padding-left: 1.1rem; }
+.public .timeline ul { margin: .4rem 0 0; padding-left: 1.1rem; list-style: disc; }
+.public .timeline ul li { padding: .15rem 0; }
 .public .list { list-style: none; margin: 0; padding: 0; }
 .public .list li { padding: .7rem 0; border-bottom: 1px dashed var(--p-rule); }
 .public .list .meta { font: .78rem var(--p-mono); color: var(--p-muted); }
@@ -46,6 +47,6 @@ pre.shiki { padding: .9rem 1rem; border-radius: 6px; overflow-x: auto; font: .85
 .public .site-footer { display: flex; gap: 1.25rem; padding-top: 2rem; padding-bottom: 3rem; font-size: .9rem; text-transform: capitalize; }
 .public .skeleton { height: 1em; background: var(--p-rule); border-radius: 3px; margin: .5rem 0; width: 60%; }
 .public .error { border: 1px solid var(--p-rule); padding: 1rem; border-radius: 6px; }
-@media (max-width: 640px) { .public .timeline li { grid-template-columns: 1fr; gap: .2rem; } }
+@media (max-width: 640px) { .public .timeline > li { grid-template-columns: 1fr; gap: .2rem; } }
 .public .hero .avatar { width: 96px; height: 96px; border-radius: 50%; object-fit: cover; margin-bottom: 1rem; }
 .public .hero .subtitle { font: .85rem var(--p-mono); color: var(--p-muted); margin: 0 0 .75rem; }
