@@ -2,7 +2,8 @@
  * The same-origin path to continue to after sign-in, or null when `next` is
  * missing or could leave this site. Requires a single leading "/" (not "//"
  * or "/\", which browsers treat as another host) and re-checks the origin
- * after URL parsing, which drops tabs and newlines.
+ * after URL parsing, which drops tabs and newlines and collapses dot segments
+ * (so "/.//host" must not end up as "//host").
  */
 export function safeNext(next: string | null, origin: string): string | null {
   if (!next || !next.startsWith("/") || next.startsWith("//") || next.startsWith("/\\")) return null;
@@ -12,7 +13,7 @@ export function safeNext(next: string | null, origin: string): string | null {
   } catch {
     return null;
   }
-  if (url.origin !== origin) return null;
+  if (url.origin !== origin || url.pathname.startsWith("//")) return null;
   return url.pathname + url.search + url.hash;
 }
 

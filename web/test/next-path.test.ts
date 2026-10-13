@@ -26,6 +26,9 @@ describe("safeNext", () => {
     ["javascript scheme", "javascript:alert(1)"],
     ["relative without a slash", "evil.com"],
     ["leading space", " /admin"],
+    ["dot segment collapsing to //", "/.//evil.com"],
+    ["dot-dot segment collapsing to //", "/..//evil.com"],
+    ["encoded dot segment collapsing to //", "/%2e//evil.com"],
   ])("rejects %s", (_label, next) => {
     expect(safeNext(next, origin)).toBeNull();
   });

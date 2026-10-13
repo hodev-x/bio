@@ -87,7 +87,7 @@ describe("login", () => {
       expect(assign).not.toHaveBeenCalled();
     });
 
-    it.each(["//evil.com", "https://evil.com", "/\\evil.com"])("ignores %j and goes to the dashboard", async (next) => {
+    it.each(["//evil.com", "https://evil.com", "/\\evil.com", "/.//evil.com"])("ignores %j and goes to the dashboard", async (next) => {
       const assign = await signInWithPasskey(`/admin/login?next=${encodeURIComponent(next)}`);
       expect(await screen.findByText("dashboard")).toBeInTheDocument();
       expect(assign).not.toHaveBeenCalled();
