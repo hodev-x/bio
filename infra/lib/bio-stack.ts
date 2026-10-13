@@ -4,6 +4,7 @@ import { Construct } from "constructs";
 import { StaticSite } from "./constructs/static-site.js";
 import { ContentTables } from "./constructs/content-tables.js";
 import { ApiLambda } from "./constructs/api-lambda.js";
+import { AppsFrontDoor } from "./constructs/apps-front-door.js";
 
 export interface BioStackProps extends StackProps {
   envName: string;     // "staging" | "prod"
@@ -52,6 +53,11 @@ export class BioStack extends Stack {
       apiOrigin,
       originVerifyParam,
       createDnsRecords: !isProd,
+    });
+
+    new AppsFrontDoor(this, "FrontDoor", {
+      envName: props.envName,
+      distribution: site.distribution,
     });
 
     new CfnOutput(this, "DistributionDomainName", { value: site.distribution.distributionDomainName });
