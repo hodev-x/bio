@@ -16,10 +16,16 @@ import { experienceConfig, educationConfig, skillsConfig, projectsConfig } from 
 import { PostsPage } from "./pages/admin/PostsPage";
 import { PostEditorPage } from "./pages/admin/PostEditorPage";
 import { RequireAuth } from "./components/RequireAuth";
+import { appsOf } from "./apps";
 
 function PublicShell() {
   const { data } = usePublicContent();
-  return <PublicLayout socials={(data?.profile?.socials as Record<string, string> | undefined) ?? undefined} />;
+  return (
+    <PublicLayout
+      socials={(data?.profile?.socials as Record<string, string> | undefined) ?? undefined}
+      showApps={appsOf(data?.projects ?? []).length > 0}
+    />
+  );
 }
 
 export function AppRoutes() {

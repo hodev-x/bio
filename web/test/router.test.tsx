@@ -63,4 +63,30 @@ describe("router", () => {
     );
     expect(await screen.findByRole("heading", { level: 1, name: "Apps" })).toBeInTheDocument();
   });
+
+  it("shows the Apps header link only when a visible project has an app", async () => {
+    const withApp = { ...content, projects: [{ id: "fluxor", title: "Fluxor", desc: "d", status: "active", visible: true, appPath: "/apps/fluxor/" }] };
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (u) => (String(u).startsWith("/api/posts") ? json(200, posts) : json(200, withApp)));
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <ModeProvider>
+          <MemoryRouter initialEntries={["/"]}><AppRoutes /></MemoryRouter>
+        </ModeProvider>
+      </QueryClientProvider>,
+    );
+    expect(await screen.findByRole("link", { name: "Apps" })).toHaveAttribute("href", "/apps");
+  });
+
+  it("has no Apps header link without apps", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (u) => (String(u).startsWith("/api/posts") ? json(200, posts) : json(200, content)));
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <ModeProvider>
+          <MemoryRouter initialEntries={["/"]}><AppRoutes /></MemoryRouter>
+        </ModeProvider>
+      </QueryClientProvider>,
+    );
+    await screen.findByRole("heading", { level: 1, name: "Daniel Hodeta" });
+    expect(screen.queryByRole("link", { name: "Apps" })).toBeNull();
+  });
 });
