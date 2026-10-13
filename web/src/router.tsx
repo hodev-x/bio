@@ -5,6 +5,7 @@ import { Home } from "./pages/public/Home";
 import { BlogList } from "./pages/public/BlogList";
 import { PostPage } from "./pages/public/PostPage";
 import { NotFound } from "./pages/public/NotFound";
+import { AppsPage } from "./pages/public/AppsPage";
 import { AdminLayout } from "./pages/admin/AdminLayout";
 import { LoginPage } from "./pages/admin/LoginPage";
 import { RegisterPage } from "./pages/admin/RegisterPage";
@@ -28,6 +29,7 @@ export function AppRoutes() {
         <Route path="/" element={<Home />} />
         <Route path="/blog" element={<BlogList />} />
         <Route path="/blog/:slug" element={<PostPage />} />
+        <Route path="/apps" element={<AppsPage />} />
         <Route path="*" element={<NotFound />} />
       </Route>
       <Route path="/admin/login" element={<LoginPage />} />

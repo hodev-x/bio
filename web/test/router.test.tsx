@@ -51,4 +51,16 @@ describe("router", () => {
     );
     expect(await screen.findByText(/login/i)).toBeInTheDocument();
   });
+
+  it("serves the Apps page at /apps", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (u) => (String(u).startsWith("/api/posts") ? json(200, posts) : json(200, content)));
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <ModeProvider>
+          <MemoryRouter initialEntries={["/apps"]}><AppRoutes /></MemoryRouter>
+        </ModeProvider>
+      </QueryClientProvider>,
+    );
+    expect(await screen.findByRole("heading", { level: 1, name: "Apps" })).toBeInTheDocument();
+  });
 });
