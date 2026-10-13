@@ -9,6 +9,8 @@ import { AppsFrontDoor } from "./constructs/apps-front-door.js";
 export interface BioStackProps extends StackProps {
   envName: string;     // "staging" | "prod"
   zoneDomain: string;  // "danielhodeta.com"
+  /** Apps routed under /apps/<name>/ (see lib/apps.ts); default none. */
+  apps?: readonly string[];
 }
 
 // Anchor the web build path to this file's location so it resolves the same
@@ -58,6 +60,7 @@ export class BioStack extends Stack {
     new AppsFrontDoor(this, "FrontDoor", {
       envName: props.envName,
       distribution: site.distribution,
+      apps: props.apps,
     });
 
     new CfnOutput(this, "DistributionDomainName", { value: site.distribution.distributionDomainName });
