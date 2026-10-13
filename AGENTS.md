@@ -44,6 +44,15 @@ infra/   AWS CDK (TypeScript, ESM, run via tsx)
 - The SSM parameter `/bio/<env>/origin-verify` must exist before `cdk deploy` for that env
   (`pnpm --filter @bio/api exec tsx scripts/provision-secrets.ts --env <env> --only origin-verify`);
   the stack resolves it at deploy time.
+- **Apps under `/apps/<name>/`.** Each environment's distribution routes the apps listed in
+  `infra/lib/apps.ts`. The stack publishes `/platform/<env>/front-door/{distribution-id,distribution-arn,distribution-domain}`
+  (SSM String) for app stacks to read. An app's own stack publishes
+  `/platform/<env>/apps/<name>/{site-bucket-name,api-domain}`, serves its files from its bucket under
+  `apps/<name>/`, and grants this distribution read access in its bucket policy (`AWS:SourceArn` = the
+  distribution ARN). Deploy the app first, then add its name to `infra/lib/apps.ts`: a bio deploy fails
+  while a listed app's parameters are missing.
+- Apps sign in by sending the browser to `/admin/login?next=<path>`. `next` must be a same-site path
+  starting with a single `/`; a path under `/apps/` is opened with a full page load.
 
 ## Notes
 - No secrets in this repo — runtime secrets live in AWS SSM; CI auth is keyless OIDC.
