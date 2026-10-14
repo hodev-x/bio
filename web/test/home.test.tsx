@@ -58,4 +58,18 @@ describe("Home", () => {
     ui();
     expect(await screen.findByRole("button", { name: /retry/i })).toBeInTheDocument();
   });
+
+  it("adds an Open app link to a project card with an app path", async () => {
+    const withApp = { ...content, projects: [
+      { id: "fluxor", title: "Fluxor", desc: "Cash-flow planning", status: "active", repo: "https://github.com/hodev-x/fluxor", appPath: "/apps/fluxor/", visible: true },
+      { id: "plain", title: "Plain", desc: "No app", status: "archived", visible: true },
+    ] };
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (u) => (String(u).startsWith("/api/posts") ? json(posts) : json(withApp)));
+    ui();
+    const open = await screen.findByRole("link", { name: "Open app" });
+    expect(open).toHaveAttribute("href", "/apps/fluxor/");
+    expect(open.closest("li")).toHaveTextContent("Fluxor");
+    expect(screen.getByRole("link", { name: "Fluxor" })).toHaveAttribute("href", "https://github.com/hodev-x/fluxor");
+    expect(screen.getAllByRole("link", { name: "Open app" })).toHaveLength(1);
+  });
 });

@@ -21,6 +21,18 @@ describe("PublicLayout", () => {
     expect(screen.getByRole("link", { name: /writing/i })).toHaveAttribute("href", "/blog");
     expect(screen.getByRole("link", { name: /github/i })).toHaveAttribute("href", "https://github.com/hodev-x");
     expect(screen.queryByRole("link", { name: /admin/i })).toBeNull();
+    expect(screen.queryByRole("link", { name: "Apps" })).toBeNull();
+  });
+  it("lists Apps next to Writing when there are apps", () => {
+    render(
+      <ModeProvider><MemoryRouter><Routes>
+        <Route element={<PublicLayout showApps />}><Route path="/" element={<p>home</p>} /></Route>
+      </Routes></MemoryRouter></ModeProvider>,
+    );
+    const nav = screen.getByRole("navigation");
+    const links = Array.from(nav.querySelectorAll("a")).map((a) => a.textContent);
+    expect(links).toEqual(["Writing", "Apps"]);
+    expect(screen.getByRole("link", { name: "Apps" })).toHaveAttribute("href", "/apps");
   });
   it("dev toggle reveals tech chips inline", async () => {
     render(ui);

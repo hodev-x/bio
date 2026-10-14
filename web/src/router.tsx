@@ -5,6 +5,7 @@ import { Home } from "./pages/public/Home";
 import { BlogList } from "./pages/public/BlogList";
 import { PostPage } from "./pages/public/PostPage";
 import { NotFound } from "./pages/public/NotFound";
+import { AppsPage } from "./pages/public/AppsPage";
 import { AdminLayout } from "./pages/admin/AdminLayout";
 import { LoginPage } from "./pages/admin/LoginPage";
 import { RegisterPage } from "./pages/admin/RegisterPage";
@@ -15,10 +16,16 @@ import { experienceConfig, educationConfig, skillsConfig, projectsConfig } from 
 import { PostsPage } from "./pages/admin/PostsPage";
 import { PostEditorPage } from "./pages/admin/PostEditorPage";
 import { RequireAuth } from "./components/RequireAuth";
+import { appsOf } from "./apps";
 
 function PublicShell() {
   const { data } = usePublicContent();
-  return <PublicLayout socials={(data?.profile?.socials as Record<string, string> | undefined) ?? undefined} />;
+  return (
+    <PublicLayout
+      socials={(data?.profile?.socials as Record<string, string> | undefined) ?? undefined}
+      showApps={appsOf(data?.projects ?? []).length > 0}
+    />
+  );
 }
 
 export function AppRoutes() {
@@ -28,6 +35,7 @@ export function AppRoutes() {
         <Route path="/" element={<Home />} />
         <Route path="/blog" element={<BlogList />} />
         <Route path="/blog/:slug" element={<PostPage />} />
+        <Route path="/apps" element={<AppsPage />} />
         <Route path="*" element={<NotFound />} />
       </Route>
       <Route path="/admin/login" element={<LoginPage />} />

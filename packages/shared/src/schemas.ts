@@ -9,6 +9,9 @@ const tech = z.record(z.string(), z.unknown()).optional();
 
 const order = z.number().int().min(0).optional();
 
+// Where an app is served on this site, e.g. "/apps/fluxor/". The trailing slash is required.
+export const APP_PATH_PATTERN = /^\/apps\/[a-z][a-z0-9-]*\/$/;
+
 export const ProfileSchema = z.object({
   id: z.literal("me").default("me"),
   name: z.string().min(1),
@@ -64,6 +67,7 @@ export const ProjectSchema = z.object({
   tech,
   visible: z.boolean().default(true),
   order,
+  appPath: z.string().regex(APP_PATH_PATTERN, "expected /apps/<name>/").optional(),
 }).strict();
 
 export const PostSchema = z.object({

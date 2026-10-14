@@ -1,21 +1,33 @@
 import { useState } from "react";
-import { Link, useNavigate } from "react-router";
+import { Link, useNavigate, useSearchParams } from "react-router";
 import { startAuthentication } from "@simplewebauthn/browser";
 import { api, ApiError } from "../../api/client";
 import { useAuth } from "../../hooks/useAuth";
+import { isAppPath, safeNext } from "./nextPath";
 
 // Injectable so tests don't need a real authenticator.
 const defaultAuthenticate = (optionsJSON: unknown) =>
   startAuthentication({ optionsJSON: optionsJSON as Parameters<typeof startAuthentication>[0]["optionsJSON"] });
 
-export function LoginPage({ authenticate = defaultAuthenticate }: { authenticate?: (o: unknown) => Promise<unknown> }) {
+const defaultAssign = (url: string) => window.location.assign(url);
+
+export function LoginPage({ authenticate = defaultAuthenticate, assign = defaultAssign }: {
+  authenticate?: (o: unknown) => Promise<unknown>;
+  assign?: (url: string) => void;
+}) {
   const { signIn } = useAuth();
   const navigate = useNavigate();
+  const [params] = useSearchParams();
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [code, setCode] = useState("");
 
-  const finish = (token: string) => { signIn(token); navigate("/admin"); };
+  const finish = (token: string) => {
+    signIn(token);
+    const next = safeNext(params.get("next"), window.location.origin);
+    if (next && isAppPath(next)) assign(next);
+    else navigate(next ?? "/admin");
+  };
   const fail = (e: unknown) => setError(e instanceof ApiError ? e.message : "something went wrong");
 
   const passkey = async () => {

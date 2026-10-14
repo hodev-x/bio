@@ -3,6 +3,7 @@ import { App, Stack } from "aws-cdk-lib";
 import { Template, Match } from "aws-cdk-lib/assertions";
 import { StaticSite } from "../lib/constructs/static-site.js";
 import { spaFallbackCode } from "../lib/constructs/spa-fallback-function.js";
+import { loadHandler, type CfRequest, type CfResponse } from "./support/cloudfront-function.js";
 
 const synth = () => {
   const stack = new Stack(new App(), "S", { env: { account: "123456789012", region: "us-east-1" } });
@@ -40,5 +41,24 @@ describe("SPA fallback + origin verify", () => {
     expect(run("/")).toBe("/");
     expect(run("/assets/app-abc.js")).toBe("/assets/app-abc.js");
     expect(run("/favicon.svg")).toBe("/favicon.svg");
+  });
+
+  describe("trailing slash for app roots", () => {
+    const handler = loadHandler(spaFallbackCode());
+    const run = (uri: string) => handler({ request: { uri } });
+
+    it("301s /apps/<name> to /apps/<name>/", () => {
+      for (const uri of ["/apps/fluxor", "/apps/my-app2"]) {
+        const res = run(uri) as CfResponse;
+        expect(res.statusCode).toBe(301);
+        expect(res.headers.location.value).toBe(`${uri}/`);
+      }
+    });
+    it("leaves the site's own /apps page and other paths to the SPA fallback", () => {
+      for (const uri of ["/apps", "/apps/", "/apps/Fluxor", "/apps/fluxor/", "/apps/fluxor/x", "/apps/1x", "/blog/apps"]) {
+        expect((run(uri) as CfRequest).uri).toBe("/index.html");
+      }
+      expect((run("/apps/fluxor.js") as CfRequest).uri).toBe("/apps/fluxor.js");
+    });
   });
 });

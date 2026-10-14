@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   ProfileSchema, ExperienceSchema, SkillsGroupSchema, ProjectSchema, PostSchema,
   VisiblePatchSchema, ENTITY_TYPES, SCHEMA_BY_TYPE, KEY_BY_TYPE,
-  EducationSchema, PostPutSchema,
+  EducationSchema, PostPutSchema, APP_PATH_PATTERN,
 } from "../src/index.js";
 
 describe("entity schemas", () => {
@@ -97,5 +97,26 @@ describe("optional content fields", () => {
   });
   it("projects accept order", () => {
     expect(ProjectSchema.parse({ id: "p", title: "P", desc: "d", status: "active", order: 0 }).order).toBe(0);
+  });
+});
+
+describe("project appPath", () => {
+  const base = { id: "fluxor", title: "Fluxor", desc: "d", status: "active" };
+  it("accepts an app path with the trailing slash", () => {
+    expect(ProjectSchema.parse({ ...base, appPath: "/apps/fluxor/" }).appPath).toBe("/apps/fluxor/");
+    expect(ProjectSchema.parse({ ...base, appPath: "/apps/my-app2/" }).appPath).toBe("/apps/my-app2/");
+  });
+  it.each([
+    "/apps/Fluxor/", "/apps/Fluxor", "/apps/fluxor", "https://example.com/apps/fluxor/",
+    "/apps/fluxor/x/", "/apps/1fluxor/", "/apps//", "apps/fluxor/", "",
+  ])("rejects %j", (appPath) => {
+    expect(ProjectSchema.safeParse({ ...base, appPath }).success).toBe(false);
+  });
+  it("stays optional", () => {
+    expect(ProjectSchema.parse(base).appPath).toBeUndefined();
+  });
+  it("exports the pattern for clients", () => {
+    expect(APP_PATH_PATTERN.test("/apps/fluxor/")).toBe(true);
+    expect(APP_PATH_PATTERN.test("/apps/fluxor")).toBe(false);
   });
 });

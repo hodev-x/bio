@@ -56,6 +56,7 @@ export const projectsConfig: EntityConfig = {
     { kind: "textarea", name: "desc", label: "Description" },
     { kind: "text", name: "status", label: "Status" },
     { kind: "text", name: "repo", label: "Repo URL" },
+    { kind: "text", name: "appPath", label: "App path" },
     { kind: "record", name: "tech", label: "Tech (key → value)" },
     { kind: "number", name: "order", label: "Order" },
   ],

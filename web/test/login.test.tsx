@@ -11,13 +11,17 @@ const jwt = (sub: string) => `x.${btoa(JSON.stringify({ sub, typ: "access" }))}.
 const json = (status: number, body: unknown) =>
   new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
 
-const ui = (authenticate?: (o: unknown) => Promise<unknown>) => (
+const ui = (
+  authenticate?: (o: unknown) => Promise<unknown>,
+  { entry = "/admin/login", assign }: { entry?: string; assign?: (url: string) => void } = {},
+) => (
   <QueryClientProvider client={new QueryClient()}>
     <AuthProvider>
-      <MemoryRouter initialEntries={["/admin/login"]}>
+      <MemoryRouter initialEntries={[entry]}>
         <Routes>
-          <Route path="/admin/login" element={<LoginPage authenticate={authenticate} />} />
+          <Route path="/admin/login" element={<LoginPage authenticate={authenticate} assign={assign} />} />
           <Route path="/admin" element={<p>dashboard</p>} />
+          <Route path="/admin/posts" element={<p>posts page</p>} />
         </Routes>
       </MemoryRouter>
     </AuthProvider>
@@ -58,5 +62,53 @@ describe("login", () => {
     render(ui(vi.fn().mockResolvedValue({ id: "cred" })));
     await userEvent.click(await screen.findByRole("button", { name: /sign in with passkey/i }));
     expect(await screen.findByText(/authentication verification failed/i)).toBeInTheDocument();
+  });
+
+  describe("next", () => {
+    const signInWithPasskey = async (entry: string, assign = vi.fn()) => {
+      vi.spyOn(globalThis, "fetch")
+        .mockResolvedValueOnce(json(401, {}))
+        .mockResolvedValueOnce(json(200, { challenge: "c" }))
+        .mockResolvedValueOnce(json(200, { accessToken: jwt("admin"), expiresIn: 900 }));
+      render(ui(vi.fn().mockResolvedValue({ id: "cred" }), { entry, assign }));
+      await userEvent.click(await screen.findByRole("button", { name: /sign in with passkey/i }));
+      return assign;
+    };
+
+    it("returns to an app with a full page load, keeping its query", async () => {
+      const assign = await signInWithPasskey(`/admin/login?next=${encodeURIComponent("/apps/fluxor/accounts?tab=all")}`);
+      await vi.waitFor(() => expect(assign).toHaveBeenCalledWith("/apps/fluxor/accounts?tab=all"));
+      expect(screen.queryByText("dashboard")).toBeNull();
+    });
+
+    it("navigates in-app to another same-site path", async () => {
+      const assign = await signInWithPasskey(`/admin/login?next=${encodeURIComponent("/admin/posts")}`);
+      expect(await screen.findByText("posts page")).toBeInTheDocument();
+      expect(assign).not.toHaveBeenCalled();
+    });
+
+    it.each(["//evil.com", "https://evil.com", "/\\evil.com", "/.//evil.com"])("ignores %j and goes to the dashboard", async (next) => {
+      const assign = await signInWithPasskey(`/admin/login?next=${encodeURIComponent(next)}`);
+      expect(await screen.findByText("dashboard")).toBeInTheDocument();
+      expect(assign).not.toHaveBeenCalled();
+    });
+
+    it("goes to the dashboard without next", async () => {
+      const assign = await signInWithPasskey("/admin/login");
+      expect(await screen.findByText("dashboard")).toBeInTheDocument();
+      expect(assign).not.toHaveBeenCalled();
+    });
+
+    it("recovery-code sign-in also returns to the app", async () => {
+      vi.spyOn(globalThis, "fetch")
+        .mockResolvedValueOnce(json(401, {}))
+        .mockResolvedValueOnce(json(200, { accessToken: jwt("admin"), expiresIn: 900 }));
+      const assign = vi.fn();
+      render(ui(undefined, { entry: `/admin/login?next=${encodeURIComponent("/apps/fluxor/")}`, assign }));
+      await userEvent.click(await screen.findByText(/use a recovery code/i));
+      await userEvent.type(screen.getByLabelText(/recovery code/i), "AAAA-BBBB");
+      await userEvent.click(screen.getByRole("button", { name: /recover/i }));
+      await vi.waitFor(() => expect(assign).toHaveBeenCalledWith("/apps/fluxor/"));
+    });
   });
 });
